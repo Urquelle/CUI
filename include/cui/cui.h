@@ -1497,7 +1497,7 @@ CUI_API bool cui_filter_bar(cui_ctx *ui, const char *id, const cui_filter_field 
  * table flattens the open part of the tree every frame and builds only the
  * rows in view, so 100k nodes cost what a screenful does.
  *
- *     cui_tree_table_begin(ui, "files", cols, 4, nodes, count, .sort = &sort, .cursor = &cursor);
+ *     cui_tree_table_begin(ui, "files", cols, 4, nodes, count, .root = root, .sort = &sort, .cursor = &cursor);
  *     int n;
  *     while ((n = cui_tree_table_row(ui)) >= 0) {
  *         cui_tree_table_name(ui, files[n].name, files[n].icon);
@@ -1511,6 +1511,8 @@ CUI_API bool cui_filter_bar(cui_ctx *ui, const char *id, const cui_filter_field 
  * activates, * opens every sibling, typing jumps to a name (with .label).
  * Selection is the data grid's: click, Shift for a range, Ctrl to toggle,
  * Ctrl+A, Esc. Columns hide by cui_grid_column.priority when narrow.
+ * `root` is your first top level node; cui_tree_sort and cui_tree_move
+ * return the new one, so keep it and pass it back each frame.
  *
  * With .draggable, rows drag to move nodes: the drag carries the selection
  * (or the row you grab when it is not selected), a line or an outlined row
@@ -1572,9 +1574,10 @@ CUI_API cui_tree_table_events cui_tree_table_end(cui_ctx *ui);
 CUI_API int cui_tree_sort(cui_tree_node *nodes, int node_count, int root, int (*cmp)(void *user, int a, int b), void *user);
 /* Moves nodes, each with its subtree, before, into (after the last child) or
  * after target, keeping their order, and relinks the nodes. Returns the new
- * first top level node. A target that is one of the nodes or inside one,
- * or a node listed twice, moves nothing. Flags stay as they are: open the target yourself if you
- * want the moved nodes in view. */
+ * first top level node. Nothing moves when the target is one of the nodes or
+ * inside one, a node is listed twice, or a node is listed with one of its
+ * ancestors (it moves with that one: leave it out). Flags stay as they are:
+ * open the target yourself if you want the moved nodes in view. */
 CUI_API int cui_tree_move(cui_tree_node *nodes, int node_count, int root, const int *move, int move_count, int target, int where);
 
 /* Path bar: a breadcrumb for file and scene paths. Segments are clickable,

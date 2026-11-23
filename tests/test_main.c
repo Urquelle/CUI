@@ -3627,7 +3627,26 @@ static void test_tree_table_drag(void) {
       CHECK(cui_tree_move(m, 6, root, mv, 1, 2, CUI_TREE_DROP_INSIDE) == 4 && m[2].first_child == 5 && m[5].parent == 2); }
     { int mv[] = { 9 }; CHECK(cui_tree_move(m, 6, root, mv, 1, 2, CUI_TREE_DROP_AFTER) == root && m[2].next_sibling == -1); }
     { int mv[] = { 1, 1 };   /* a node listed twice: nothing moves (it would link after itself) */
-      CHECK(cui_tree_move(m, 6, root, mv, 2, 0, CUI_TREE_DROP_AFTER) == root && m[0].first_child == 1 && m[1].next_sibling == 2 && m[0].next_sibling == -1); }
+      CHECK(cui_tree_move(m, 6, root, mv, 2, 0, CUI_TREE_DROP_AFTER) == root && m[0].first_child == 1 && m[1].next_sibling == 2 && m[0].next_sibling == -1);
+      CHECK(m[1].parent == 0); }   /* the check's marks are gone */
+    { int mv[] = { 0, 1 }, mv2[] = { 5, 3, 2 };   /* a node with its ancestor, in either order: nothing moves */
+      CHECK(cui_tree_move(m, 6, root, mv, 2, 4, CUI_TREE_DROP_BEFORE) == root && m[1].parent == 0 && m[0].first_child == 1 && m[0].parent == -1);
+      CHECK(cui_tree_move(m, 6, root, mv2, 3, 4, CUI_TREE_DROP_AFTER) == root && m[5].parent == 2 && m[2].first_child == 5 && m[3].parent == -1 && m[2].parent == 0); }
+    { int mv[] = { 3, 0 };   /* unrelated nodes: they go into the target in the listed order */
+      root = cui_tree_move(m, 6, root, mv, 2, 4, CUI_TREE_DROP_INSIDE);
+      CHECK(root == 4 && m[4].first_child == 3 && m[3].next_sibling == 0 && m[0].next_sibling == -1 && m[0].parent == 4 && m[4].next_sibling == -1); }
+    /* 60000 nodes listed at once: the checks stay linear (quadratic ones took seconds) */
+    { int big_n = 60001;
+      cui_tree_node *bn = malloc(sizeof *bn * (size_t)big_n);
+      int *mv = malloc(sizeof *mv * (size_t)(big_n - 1));
+      for (int k = 0; k < big_n; k++) { bn[k].parent = -1; bn[k].first_child = -1; bn[k].next_sibling = k + 1 < big_n ? k + 1 : -1; bn[k].flags = 0; }
+      for (int k = 1; k < big_n; k++) mv[k - 1] = k;
+      clock_t c0 = clock();
+      int r = cui_tree_move(bn, big_n, 0, mv, big_n - 1, 0, CUI_TREE_DROP_INSIDE);
+      double secs = (double)(clock() - c0) / CLOCKS_PER_SEC;
+      CHECK(r == 0 && bn[0].first_child == 1 && bn[0].next_sibling == -1 && bn[big_n - 1].parent == 0 && bn[big_n - 2].next_sibling == big_n - 1);
+      CHECK(secs < 0.5);
+      free(mv); free(bn); }
 }
 
 static void test_text_capacity(void) {

@@ -837,21 +837,49 @@ static void cui__tt_link(cui_tree_node *nodes, int count, int *root, int n, int 
     }
 }
 
+/* While a move is checked, each listed node carries a mark in its parent
+ * field: -parent - 3, below any real parent (-1 or an index). The checks then
+ * look a node up in the list in one step, so they stay linear in the nodes
+ * times the depth, without memory; the fields are restored before anything
+ * moves. */
+static int cui__tt_mark_flip(int parent) { return -parent - 3; }   /* marks and unmarks */
+static bool cui__tt_marked(const cui_tree_node *nodes, int n) { return nodes[n].parent < -1; }
+static int cui__tt_parent_of(const cui_tree_node *nodes, int n) {
+    return cui__tt_marked(nodes, n) ? cui__tt_mark_flip(nodes[n].parent) : nodes[n].parent;
+}
+
+/* Whether the listed nodes can move next to target: each listed once, none
+ * inside another listed node (it would be torn out of it), and the target
+ * neither one of them nor inside one (that would make a loop). */
+static bool cui__tt_move_ok(cui_tree_node *nodes, int count, const int *move, int move_count, int target) {
+    for (int k = 0; k < move_count; k++) if (move[k] < 0 || move[k] >= count) return false;
+    int marked = 0;
+    bool ok = true;
+    for (; marked < move_count; marked++) {
+        int n = move[marked];
+        if (cui__tt_marked(nodes, n)) { ok = false; break; }   /* listed twice (or a broken parent) */
+        nodes[n].parent = cui__tt_mark_flip(nodes[n].parent);
+    }
+    for (int k = 0; ok && k < move_count; k++)
+        for (int a = cui__tt_parent_of(nodes, move[k]), guard = 0; ok && a >= 0 && a < count && guard <= count; guard++, a = cui__tt_parent_of(nodes, a))
+            if (cui__tt_marked(nodes, a)) ok = false;
+    for (int a = target, guard = 0; ok && a >= 0 && a < count && guard <= count; guard++, a = cui__tt_parent_of(nodes, a))
+        if (cui__tt_marked(nodes, a)) ok = false;
+    for (int k = 0; k < marked; k++) nodes[move[k]].parent = cui__tt_mark_flip(nodes[move[k]].parent);
+    return ok;
+}
+
 int cui_tree_move(cui_tree_node *nodes, int count, int root, const int *move, int move_count, int target, int where) {
     if (!nodes || count <= 0 || !move || move_count <= 0 || target < 0 || target >= count) return root;
     if (where != CUI_TREE_DROP_BEFORE && where != CUI_TREE_DROP_INSIDE && where != CUI_TREE_DROP_AFTER) return root;
-    for (int k = 0; k < move_count; k++) {
-        if (move[k] < 0 || move[k] >= count) return root;
-        for (int j = 0; j < k; j++) if (move[j] == move[k]) return root;   /* twice: it would link after itself */
-    }
-    /* the target may not be one of the nodes or inside one: that would make a loop */
-    for (int a = target, guard = 0; a >= 0 && a < count && guard <= count; guard++, a = nodes[a].parent)
-        for (int k = 0; k < move_count; k++) if (move[k] == a) return root;
+    if (!cui__tt_move_ok(nodes, count, move, move_count, target)) return root;
+    /* the first goes next to the target, each next one after the one before: their order stays */
     int at = target, at_where = where;
     for (int k = 0; k < move_count; k++) {
         cui__tt_unlink(nodes, count, &root, move[k]);
         cui__tt_link(nodes, count, &root, move[k], at, at_where);
-        if (at_where == CUI_TREE_DROP_AFTER) at = move[k];   /* the next one follows it, keeping the order */
+        at = move[k];
+        at_where = CUI_TREE_DROP_AFTER;
     }
     return root;
 }
