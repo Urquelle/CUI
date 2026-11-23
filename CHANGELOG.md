@@ -7,6 +7,7 @@ What changed in CUI, newest first. Every component mentioned here runs live in t
 ### Added
 
 - Tree table drag and drop: `.draggable` lets rows drag to move nodes, before, after or into a folder, with a drop line or outline, a ghost with a count, edge scrolling, folders that open while you hold the drag over them, and Esc to cancel. The table reports the drop in `cui_tree_table_events` (`dropped`, `drop_target`, `drop_where`), `.can_drop` refuses places, and `cui_tree_move` relinks the nodes. Try it on the gallery's *Files* page. See [Dragging rows](docs/components-more.md#dragging-rows).
+- Chart annotations take a `color` of their own, a theme token or any color, for the line, the dot and the label, so a low, a high and a target can each have theirs; without it `accent` decides as before. Line and bar charts take `.x_min` and `.x_max`, what the first and last point stand for, and then an annotation's x is in those units instead of the point's index, as in the dot chart. See [Chart annotations](docs/components-more.md#chart-annotations).
 - `CUI_PLATFORM=wayland` requires native Wayland through SDL2 without falling back to X11. Linux `auto` is unchanged.
 - `cui_image_update(ui, tex, x, y, w, h, rgba, stride)` updates a region of an existing RGBA8 image texture in place through the active renderer's `texture_update` hook (`stride == 0` defaults to `w * 4`), requesting a redraw without reallocating the texture for live video, camera previews, and dynamic bitmaps.
 - `cui_frame_alloc(ui, size)` and `cui_frame_strdup(ui, s)` expose CUI's frame-scoped arena so custom `cui_canvas` paint callbacks can safely capture temporary strings and slices that outlive the caller's stack frame until `cui_end_frame`.
@@ -71,6 +72,9 @@ What changed in CUI, newest first. Every component mentioned here runs live in t
 
 ### Fixed
 
+- Enter and Space on a focused month calendar activate the selected day, also when the pointer rests on another day ([#124](https://github.com/yappologistic/CUI/issues/124)).
+- The single-file build compiles with GCC 15 at `-O3` and `-Werror=array-bounds`; CI now checks it ([#123](https://github.com/yappologistic/CUI/issues/123)).
+- macOS Metal renderer: the window's content no longer jitters while the window is dragged to a new size. Each frame drawn during the drag is shown together with the new window size, as the software renderer's already are.
 - Windows: maximizing, minimizing or restoring a window no longer freezes it for about a second with vsync on. The window keeps presenting, without vsync, while DWM animates the change, and vsync comes back right after ([#117](https://github.com/yappologistic/CUI/issues/117)).
 - Repeated software screenshots capture the whole frame when the destination buffer is reused ([#101](https://github.com/yappologistic/CUI/issues/101)).
 - A week calendar or Gantt drag ends when the list shrinks, the component is disabled or `read_only` changes. A held mouse button can no longer resume that drag or move the item that took its place ([#109](https://github.com/yappologistic/CUI/issues/109)).
