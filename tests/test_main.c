@@ -3441,6 +3441,8 @@ static void test_tree_table(void) {
     }
 }
 
+/* A frame without the table: another page is showing. */
+static void build_ttab_gone(cui_ctx *ui, void *u) { (void)u; cui_text(ui, "elsewhere"); }
 /* Presses at (x, y0), drags to y1 in a few steps, rests there `hold` frames, then lets go. */
 static void ttab_drag(cui_ctx *ui, ttab_ctx *t, float x, float y0, float y1, int hold) {
     cui_input_mouse_move(ui, x, y0);
@@ -3606,6 +3608,55 @@ static void test_tree_table_drag(void) {
     CHECK(t.seq[0] == 0);
     ttab_drag(ui, &t, g.x + 300, ttab_row_y(g, 0), g.y + g.h - 4, 60);
     CHECK(t.seq[0] > 0 && t.drops == 1 && t.dropped[0] == 0 && t.drop_where != CUI_TREE_DROP_INSIDE && t.drop_target > 5);
+    /* a table left out of a frame mid-drag ends the drag: let go elsewhere, it drops nothing on its return */
+    {
+        float x = g.x + 300;
+        cui_input_mouse_move(ui, x, ttab_row_y(g, 1));
+        run(ui, build_ttab, &t, 1);
+        cui_input_mouse_button(ui, CUI_MOUSE_LEFT, true);
+        run(ui, build_ttab, &t, 1);
+        for (int i = 1; i <= 4; i++) { cui_input_mouse_move(ui, x, ttab_row_y(g, 1) + 12 * i); run(ui, build_ttab, &t, 1); }
+        run(ui, build_ttab_gone, &t, 2);
+        cui_input_mouse_button(ui, CUI_MOUSE_LEFT, false);
+        run(ui, build_ttab_gone, &t, 2);
+        run(ui, build_ttab, &t, 3);
+        CHECK(t.drops == 1);
+        /* the same for a press that had not moved far enough yet: on its return the pointer is elsewhere */
+        cui_input_mouse_move(ui, x, ttab_row_y(g, 3));
+        run(ui, build_ttab, &t, 1);
+        cui_input_mouse_button(ui, CUI_MOUSE_LEFT, true);
+        run(ui, build_ttab, &t, 1);
+        run(ui, build_ttab_gone, &t, 1);
+        cui_input_mouse_button(ui, CUI_MOUSE_LEFT, false);
+        run(ui, build_ttab_gone, &t, 1);
+        cui_input_mouse_move(ui, x, ttab_row_y(g, 6));
+        run(ui, build_ttab_gone, &t, 1);
+        run(ui, build_ttab, &t, 3);
+        CHECK(t.drops == 1);
+        /* a drag after its return still works */
+        ttab_drag(ui, &t, x, ttab_row_y(g, 0), ttab_row_y(g, 3), 0);
+        CHECK(t.drops == 2 && t.drop_count == 1);
+    }
+    /* the drag carries the selection, also when Shift+Down grows it mid-drag: all three move, in order */
+    {
+        float x = g.x + 300;
+        cui_input_mouse_move(ui, x, ttab_row_y(g, 1));
+        run(ui, build_ttab, &t, 1);
+        cui_input_mouse_button(ui, CUI_MOUSE_LEFT, true);
+        run(ui, build_ttab, &t, 1);
+        for (int i = 1; i <= 4; i++) { cui_input_mouse_move(ui, x, ttab_row_y(g, 1) + 12 * i); run(ui, build_ttab, &t, 1); }
+        key(ui, build_ttab, &t, CUI_KEY_DOWN, CUI_MOD_SHIFT);
+        key(ui, build_ttab, &t, CUI_KEY_DOWN, CUI_MOD_SHIFT);
+        cui_input_mouse_move(ui, x, ttab_row_y(g, 7));
+        run(ui, build_ttab, &t, 1);
+        cui_input_mouse_button(ui, CUI_MOUSE_LEFT, false);
+        run(ui, build_ttab, &t, 2);
+        int sel = 0;
+        for (int k = 0; k < 100; k++) sel += (many[k].flags & CUI_TREE_SELECTED) != 0;
+        CHECK(t.drops == 3 && t.drop_count == 3 && sel == 3);
+        CHECK(many[t.dropped[0]].next_sibling == t.dropped[1] && many[t.dropped[1]].next_sibling == t.dropped[2]);
+        for (int k = 0; k < 3 && k < t.drop_count; k++) CHECK(many[t.dropped[k]].flags & CUI_TREE_SELECTED);
+    }
     cui_destroy(ui);
 
     /* cui_tree_move on its own: 0 { 3, 4 }, 1, 2 */

@@ -34,6 +34,7 @@ typedef struct {
     int hold_node; double hold_time;   /* the closed folder under the drag, and since when */
     char icon[16];                     /* the first dragged node's icon, for the ghost */
     cui_spring lift;
+    uint64_t drag_frame;               /* the frame the drag input last ran */
 } cui__tt_state;
 
 typedef struct cui__tt_build {
@@ -337,7 +338,11 @@ static void cui__tt_edge_scroll(cui_ctx *ui, cui__tt_build *b, cui_rect view) {
 static bool cui__tt_drag_input(cui_ctx *ui, cui__tt_build *b) {
     cui__tt_state *st = b->st;
     cui_id did = b->id ^ CUI__TT_GHOST;
-    if (cui_is_disabled(ui)) {   /* a disabled table drops nothing: the drag ends */
+    /* a table left out of a frame lost its press or drag: the button may have gone
+     * up meanwhile, and a release seen on its return would drop at a stale place */
+    bool gone = ui->frame - st->drag_frame > 1;
+    st->drag_frame = ui->frame;
+    if (gone || cui_is_disabled(ui)) {   /* a disabled table drops nothing: the drag ends */
         st->pending = st->dragging = false;
         st->mark = CUI__TT_MARK_NONE;
         return false;
@@ -359,8 +364,11 @@ static bool cui__tt_drag_input(cui_ctx *ui, cui__tt_build *b) {
     }
     cui__spring(ui, &st->lift, st->dragging ? 1.0f : 0.0f, CUI__SPRING_ENTER);
     if (!st->dragging) return false;
-    for (int k = 0; k < st->drag_n; k++)
-        if (!cui__tt_ok(b, st->drag[k])) { st->dragging = false; return false; }   /* the nodes changed under the drag */
+    /* the drag carries the selection, also when the keys change it mid-drag (or the nodes change) */
+    int first = st->drag_n > 0 ? st->drag[0] : -1;
+    cui__tt_collect_drag(ui, b);
+    if (st->drag_n == 0) { st->dragging = false; return false; }
+    if (st->drag[0] != first) st->icon[0] = 0;   /* the ghost shows the new first node's icon once its row is built */
     ui->active = did;   /* the pointer is the drag's: no row takes the release as a click */
     if (cui_key_pressed(ui, CUI_KEY_ESCAPE)) {
         ui->kpressed[CUI_KEY_ESCAPE] = 0;
