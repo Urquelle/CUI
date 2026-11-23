@@ -6,7 +6,7 @@ What changed in CUI, newest first. Every component mentioned here runs live in t
 
 ### Added
 
-- Tree table drag and drop: `.draggable` lets rows drag to move nodes, before, after or into a folder, with a drop line or outline, a ghost with a count, edge scrolling, folders that open while you hold the drag over them, and Esc to cancel. The table reports the drop in `cui_tree_table_events` (`dropped`, `drop_target`, `drop_where`), `.can_drop` refuses places, and `cui_tree_move` relinks the nodes. See [Dragging rows](docs/components-more.md#dragging-rows).
+- Tree table drag and drop: `.draggable` lets rows drag to move nodes, before, after or into a folder, with a drop line or outline, a ghost with a count, edge scrolling, folders that open while you hold the drag over them, and Esc to cancel. The table reports the drop in `cui_tree_table_events` (`dropped`, `drop_target`, `drop_where`), `.can_drop` refuses places, and `cui_tree_move` relinks the nodes. Try it on the gallery's *Files* page. See [Dragging rows](docs/components-more.md#dragging-rows).
 - `CUI_PLATFORM=wayland` requires native Wayland through SDL2 without falling back to X11. Linux `auto` is unchanged.
 - `cui_image_update(ui, tex, x, y, w, h, rgba, stride)` updates a region of an existing RGBA8 image texture in place through the active renderer's `texture_update` hook (`stride == 0` defaults to `w * 4`), requesting a redraw without reallocating the texture for live video, camera previews, and dynamic bitmaps.
 - `cui_frame_alloc(ui, size)` and `cui_frame_strdup(ui, s)` expose CUI's frame-scoped arena so custom `cui_canvas` paint callbacks can safely capture temporary strings and slices that outlive the caller's stack frame until `cui_end_frame`.
