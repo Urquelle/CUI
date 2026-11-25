@@ -579,12 +579,15 @@ void cui_input_scroll(cui_ctx *ui, float dx, float dy) {
 
 static bool cui__touch_slot(int finger) { return finger >= 0 && finger < CUI_TOUCH_MAX; }
 
-/* the active touch that landed earliest, or -1 when nothing is down */
+/* the active touch that landed earliest; on the frame the last finger lifts,
+ * the lifted touch that landed earliest; otherwise -1 */
 static int cui__touch_first(cui_ctx *ui) {
-    int best = -1;
-    for (int i = 0; i < CUI_TOUCH_MAX; i++)
+    int best = -1, lifted = -1;
+    for (int i = 0; i < CUI_TOUCH_MAX; i++) {
         if (ui->tdown[i] && (best < 0 || ui->tland[i] < ui->tland[best])) best = i;
-    return best;
+        if (ui->treleased[i] && (lifted < 0 || ui->tland[i] < ui->tland[lifted])) lifted = i;
+    }
+    return best >= 0 ? best : lifted;
 }
 
 void cui_input_touch(cui_ctx *ui, int finger, bool down, float x, float y) {
@@ -592,8 +595,9 @@ void cui_input_touch(cui_ctx *ui, int finger, bool down, float x, float y) {
     const cui_input_event event = { .kind = CUI_INPUT_TOUCH, .finger = finger, .position = {x, y}, .down = down };
     if (cui__input_handled(ui, &event)) return;
     cui__poke(ui);
-    if (down) { ui->tpressed[finger] = !ui->tdown[finger]; ui->tland[finger] = ui->tland_seq++; ui->tx[finger] = x; ui->ty[finger] = y; }
-    else if (ui->tdown[finger]) ui->treleased[finger] = true;
+    if (down && !ui->tdown[finger]) { ui->tpressed[finger] = true; ui->tland[finger] = ui->tland_seq++; }
+    if (!down && ui->tdown[finger]) ui->treleased[finger] = true;
+    if (down || ui->tdown[finger]) { ui->tx[finger] = x; ui->ty[finger] = y; }   /* where it lifted stays readable this frame */
     ui->tdown[finger] = down;
 }
 
@@ -633,7 +637,7 @@ bool cui_touch_released(cui_ctx *ui, int finger) {
 cui_vec2 cui_touch_pos(cui_ctx *ui, int finger) {
     cui_vec2 v = { -1e6f, -1e6f };
     if (finger < 0) finger = cui__touch_first(ui);   /* the touch that landed first */
-    if (cui__touch_slot(finger) && ui->tdown[finger]) { v.x = ui->tx[finger]; v.y = ui->ty[finger]; }
+    if (cui__touch_slot(finger) && (ui->tdown[finger] || ui->treleased[finger])) { v.x = ui->tx[finger]; v.y = ui->ty[finger]; }
     return v;
 }
 

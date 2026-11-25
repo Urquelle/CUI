@@ -325,7 +325,9 @@ CUI_API void cui_input_touch(cui_ctx *ui, int finger, bool down, float x, float 
 CUI_API void cui_input_touch_move(cui_ctx *ui, int finger, float x, float y);
 CUI_API void cui_input_touch_cancel(cui_ctx *ui, int finger);   /* a system gesture stole the finger */
 /* Touches this frame: count, per-finger state and position; finger -1 reads
- * the first active touch (the one that landed earliest). */
+ * the first active touch (the one that landed earliest), and on the frame the
+ * last finger lifts, that finger. A finger that lifted this frame keeps its
+ * last position in cui_touch_pos for that frame, so a tap can be placed. */
 CUI_API int cui_touch_count(cui_ctx *ui);
 CUI_API bool cui_touch_down(cui_ctx *ui, int finger);
 CUI_API bool cui_touch_pressed(cui_ctx *ui, int finger);   /* landed this frame */

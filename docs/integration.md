@@ -99,9 +99,10 @@ The next frame starts with the arrow cursor.
 
 ## Touch input
 
-A touch platform feeds the raw multi-touch API instead of the mouse. Fingers are
-numbered by slot (0 to `CUI_TOUCH_MAX - 1`); your platform backend picks the
-slot, keeps it for the life of the touch and reports moves and lifts through it:
+A touch platform can feed the raw multi-touch API beside or instead of the
+mouse. Fingers are numbered by slot (0 to `CUI_TOUCH_MAX - 1`); your platform
+backend picks the slot, keeps it for the life of the touch and reports moves
+and lifts through it:
 
 ```c
 cui_input_touch(ui, finger, down, x, y);   /* a finger lands or lifts */
@@ -112,15 +113,18 @@ cui_input_touch_cancel(ui, finger);        /* a system gesture steals it */
 In the frame loop, `cui_touch_down`, `cui_touch_pressed` and
 `cui_touch_released` report the state and the per-frame edge flags (the edges
 hold for one frame, like the mouse ones), and `cui_touch_pos` returns the
-position. Pass -1 as the finger to ask about the touch that landed first; when
-nothing is down, `cui_touch_down(-1)` is false and `cui_touch_pos(-1)` is off
-screen (-1e6). `cui_touch_count` reports how many fingers are down. The
+position. A finger that lifted keeps its last position for the frame it
+lifts, so `cui_touch_released` with `cui_touch_pos` places a tap. Pass -1 as
+the finger to ask about the touch that landed first; on the frame the last
+finger lifts, -1 is that finger, and when no finger is down or lifted,
+`cui_touch_down(-1)` is false and `cui_touch_pos(-1)` is off screen (-1e6).
+`cui_touch_count` reports how many fingers are down. The
 optional input hook (`cui_set_input_hook`) also sees touches, as
 `CUI_INPUT_TOUCH` and `CUI_INPUT_TOUCH_MOVE` events with the `finger` field
 set. Touch does not drive the mouse: a component that only listens to the mouse
 ignores it, so a touch-first app either uses components with explicit touch
-support or maps the first finger to the mouse itself (the built-in Android
-backend does the latter).
+support or maps the first finger to the mouse itself (the built-in Android and
+iOS backends do the latter).
 
 ## Using the built-in backends with your loop
 

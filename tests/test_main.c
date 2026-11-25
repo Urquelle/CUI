@@ -10648,8 +10648,6 @@ static void test_emoji_release(void) {
     CHECK(et_rgba_live == 0);
 }
 
-/** Share one software renderer across the test contexts and return a failing
- * exit status to CTest if any check in the suite fails. */
 static int g_touch_hook_seen;
 static bool touch_hook(cui_ctx *ui, const cui_input_event *e, void *u) {
     (void)ui; (void)u;
@@ -10741,11 +10739,60 @@ static void test_touch_api(void) {
     cui_input_touch(ui, 1, false, 2, 2);
     cui_input_touch(ui, 0, false, 3, 3);
     {
+        /* the frame both lift, -1 is the lifted touch that landed first */
         touch_probe p = probe(ui, -1);
         CHECK(cui_touch_count(ui) == 0);
-        CHECK(!p.down);
+        CHECK(!p.down && p.released);
+        CHECK_NEAR(p.pos.x, 2, 0.01f);
+    }
+    {
+        touch_probe p = probe(ui, -1);
+        CHECK(!p.down && !p.released);
         CHECK_NEAR(p.pos.x, -1e6f, 1.0f);   /* nothing down: the off-screen rest value */
     }
+
+    /* a single finger lifting: released and the lift position, for finger 0
+     * and for -1, during the frame it lifts only */
+    cui_input_touch(ui, 0, true, 40, 50);
+    probe(ui, 0);
+    cui_input_touch(ui, 0, false, 44, 55);
+    {
+        touch_probe p = probe(ui, -1);
+        CHECK(!p.down && !p.pressed && p.released);
+        CHECK_NEAR(p.pos.x, 44, 0.01f);
+        CHECK_NEAR(p.pos.y, 55, 0.01f);
+    }
+    {
+        touch_probe p = probe(ui, 0);
+        CHECK(!p.released);
+        CHECK_NEAR(p.pos.x, -1e6f, 1.0f);
+    }
+
+    /* a tap that lands and lifts between two frames is still seen, and placed */
+    cui_input_touch(ui, 2, true, 60, 70);
+    cui_input_touch(ui, 2, false, 60, 70);
+    {
+        touch_probe p = probe(ui, -1);
+        CHECK(!p.down && p.pressed && p.released);
+        CHECK_NEAR(p.pos.x, 60, 0.01f);
+        CHECK_NEAR(p.pos.y, 70, 0.01f);
+    }
+
+    /* a repeated down for a finger already down keeps its pressed flag and
+     * its landing order */
+    cui_input_touch(ui, 0, true, 1, 1);
+    cui_input_touch(ui, 1, true, 2, 2);
+    cui_input_touch(ui, 0, true, 5, 5);
+    {
+        touch_probe p = probe(ui, 0);
+        CHECK(p.down && p.pressed);
+        CHECK_NEAR(p.pos.x, 5, 0.01f);
+        touch_probe first = probe(ui, -1);
+        CHECK_NEAR(first.pos.x, 5, 0.01f);   /* finger 0 still landed first */
+    }
+    cui_input_touch(ui, 0, false, 5, 5);
+    cui_input_touch(ui, 1, false, 2, 2);
+    probe(ui, 0);
 
     /* cancel releases without a normal lift */
     cui_input_touch(ui, 0, true, 5, 5);
@@ -10806,6 +10853,8 @@ static void test_touch_api(void) {
     cui_destroy(ui);
 }
 
+/** Share one software renderer across the test contexts and return a failing
+ * exit status to CTest if any check in the suite fails. */
 int main(void) {
     g_sw = cui_sw_create();
     test_color();
