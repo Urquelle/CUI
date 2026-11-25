@@ -3038,6 +3038,8 @@ typedef struct {
     bool draggable, apply, refuse_inside;      /* drag and drop: apply moves the nodes with cui_tree_move */
     bool disabled;                             /* builds the table in a disabled scope */
     int drops, drop_target, drop_where, drop_count, dropped[8];
+    bool menu, menu_shown;                     /* menu: builds the context menu; menu_shown: it was built this frame */
+    int menu_node, menu_chosen;
 } ttab_ctx;
 static const char *ttab_label(void *user, int n) { ttab_ctx *t = user; return t->names ? t->names[n] : NULL; }
 static bool ttab_can_drop(void *user, int target, int where) { ttab_ctx *t = user; (void)target; return !(t->refuse_inside && where == CUI_TREE_DROP_INSIDE); }
@@ -3075,6 +3077,14 @@ static void build_ttab(cui_ctx *ui, void *u) {
             t->drop_target = ev.drop_target; t->drop_where = ev.drop_where; t->drop_count = ev.drop_count;
             for (int k = 0; k < ev.drop_count && k < 8; k++) t->dropped[k] = ev.dropped[k];
             if (t->apply) t->root = cui_tree_move(t->nodes, t->count, t->root, ev.dropped, ev.drop_count, ev.drop_target, ev.drop_where);
+        }
+        t->menu_shown = false;
+        int node = -1;
+        if (t->menu) cui_tree_table_menu(ui, "tt", &node) {
+            t->menu_shown = true;
+            t->menu_node = node;
+            if (cui_menu_item(ui, "Rename")) t->menu_chosen = node;
+            cui_menu_item(ui, "Delete");
         }
         if (t->disabled) cui_pop_disabled(ui);
     }
@@ -3459,6 +3469,96 @@ static bool ttab_kids(const cui_tree_node *nd, int parent, const int *want, int 
     int c = parent >= 0 ? nd[parent].first_child : -1;
     for (int k = 0; k < n; k++, c = nd[c].next_sibling) if (c != want[k] || nd[c].parent != parent) return false;
     return c == -1;
+}
+
+static void ttab_right_click(cui_ctx *ui, ttab_ctx *t, float x, float y) {
+    cui_input_mouse_move(ui, x, y);
+    run(ui, build_ttab, t, 1);
+    cui_input_mouse_button(ui, CUI_MOUSE_RIGHT, true);
+    run(ui, build_ttab, t, 1);
+    cui_input_mouse_button(ui, CUI_MOUSE_RIGHT, false);
+    run(ui, build_ttab, t, 1);
+}
+
+static void test_tree_table_menu(void) {
+    printf("tree table context menu: the node under the pointer, selection, Shift+F10, keys, closing\n");
+    cui_ctx *ui = new_ctx();
+    cui_set_viewport(ui, 900, 600, 1);
+    /* 0 A { 1 A1 { 3 A1a }, 2 A2 }, 4 B { 5 B1 }, 6 C; rows A, A1, A2, B, C */
+    cui_tree_node nd[8];
+    for (int k = 0; k < 8; k++) { nd[k].parent = nd[k].first_child = nd[k].next_sibling = -1; nd[k].flags = 0; }
+    { int top[] = { 0, 4, 6 }, a[] = { 1, 2 }, a1[] = { 3 }, bb[] = { 5 };
+      ttab_link(nd, -1, top, 3); ttab_link(nd, 0, a, 2); ttab_link(nd, 1, a1, 1); ttab_link(nd, 4, bb, 1); }
+    nd[0].flags = nd[1].flags = nd[4].flags = CUI_TREE_HAS_CHILDREN;
+    nd[0].flags |= CUI_TREE_OPEN;
+    ttab_ctx t;
+    memset(&t, 0, sizeof t);
+    t.nodes = nd; t.count = 7; t.cursor = -1; t.sort.column = -1;
+    t.activated = t.expanded = t.collapsed = -1;
+    t.draggable = true;
+    t.menu_node = t.menu_chosen = -1;
+    run(ui, build_ttab, &t, 3);
+    cui_rect g = rect_of(ui, t.grid_id);
+    /* without a menu the right button does nothing */
+    ttab_right_click(ui, &t, g.x + 300, ttab_row_y(g, 3));
+    CHECK(ttab_selected(&t) == 0 && t.cursor == -1);
+    /* a right click opens the menu for the row under the pointer and selects it */
+    t.menu = true;
+    run(ui, build_ttab, &t, 1);
+    ttab_right_click(ui, &t, g.x + 300, ttab_row_y(g, 3));
+    CHECK(t.menu_shown && t.menu_node == 4);
+    CHECK(t.cursor == 4 && (nd[4].flags & CUI_TREE_SELECTED) && ttab_selected(&t) == 1);
+    CHECK(t.drops == 0 && !(nd[4].flags & CUI_TREE_OPEN));
+    /* inside a selection of several, the selection stays */
+    cui_input_mouse_leave(ui);
+    key(ui, build_ttab, &t, CUI_KEY_ESCAPE, 0);   /* closes the menu; the selection stays */
+    run(ui, build_ttab, &t, 30);
+    CHECK(!t.menu_shown && ttab_selected(&t) == 1);
+    click_at(ui, build_ttab, &t, g.x + 300, ttab_row_y(g, 1));
+    key(ui, build_ttab, &t, CUI_KEY_DOWN, CUI_MOD_SHIFT);
+    CHECK(ttab_selected(&t) == 2 && t.cursor == 2);
+    ttab_right_click(ui, &t, g.x + 300, ttab_row_y(g, 1));
+    CHECK(t.menu_shown && t.menu_node == 1 && t.cursor == 1);
+    CHECK((nd[1].flags & CUI_TREE_SELECTED) && (nd[2].flags & CUI_TREE_SELECTED) && ttab_selected(&t) == 2);
+    /* another row while it is open: the menu moves to that node */
+    ttab_right_click(ui, &t, g.x + 300, ttab_row_y(g, 4));
+    CHECK(t.menu_shown && t.menu_node == 6 && ttab_selected(&t) == 1 && (nd[6].flags & CUI_TREE_SELECTED));
+    /* the open menu takes the keys: Down and Enter pick an item, the tree stays */
+    cui_input_mouse_leave(ui);
+    run(ui, build_ttab, &t, 1);
+    key(ui, build_ttab, &t, CUI_KEY_DOWN, 0);
+    key(ui, build_ttab, &t, CUI_KEY_ENTER, 0);
+    CHECK(t.menu_chosen == 6 && t.cursor == 6 && t.activated == -1);
+    run(ui, build_ttab, &t, 30);
+    CHECK(!t.menu_shown);
+    /* Shift+F10 opens it for the cursor row; Down then moves in the menu, not the tree */
+    key(ui, build_ttab, &t, CUI_KEY_UP, 0);
+    CHECK(t.cursor == 4);
+    key(ui, build_ttab, &t, CUI_KEY_F10, CUI_MOD_SHIFT);
+    CHECK(t.menu_shown && t.menu_node == 4 && (nd[4].flags & CUI_TREE_SELECTED));
+    key(ui, build_ttab, &t, CUI_KEY_DOWN, 0);
+    CHECK(t.cursor == 4);
+    key(ui, build_ttab, &t, CUI_KEY_ESCAPE, 0);
+    run(ui, build_ttab, &t, 30);
+    CHECK(!t.menu_shown && t.cursor == 4);
+    /* the chevron belongs to its row: a right click there opens the menu and leaves the folder as it was */
+    ttab_right_click(ui, &t, g.x + 22, ttab_row_y(g, 0));
+    CHECK(t.menu_shown && t.menu_node == 0 && (nd[0].flags & CUI_TREE_OPEN));
+    /* the menu closes when its node is hidden */
+    ttab_right_click(ui, &t, g.x + 300, ttab_row_y(g, 2));
+    CHECK(t.menu_shown && t.menu_node == 2);
+    nd[0].flags &= ~(uint32_t)CUI_TREE_OPEN;
+    run(ui, build_ttab, &t, 30);
+    CHECK(!t.menu_shown);
+    /* and when the caller stops building it */
+    ttab_right_click(ui, &t, g.x + 300, ttab_row_y(g, 0));
+    CHECK(t.menu_shown && t.menu_node == 0);
+    t.menu = false;
+    run(ui, build_ttab, &t, 3);
+    t.menu = true;
+    run(ui, build_ttab, &t, 30);
+    CHECK(!t.menu_shown);
+    cui_destroy(ui);
 }
 
 static void test_tree_table_drag(void) {
@@ -10602,6 +10702,7 @@ int main(void) {
     test_filter_handoff();
     test_tree_table();
     test_tree_table_drag();
+    test_tree_table_menu();
     test_tools();
     test_hex_view();
     test_markdown();

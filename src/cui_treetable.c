@@ -11,6 +11,8 @@
 #define CUI__TT_HOLD_OPEN 0.6     /* seconds a drag rests on a closed folder before it opens */
 #define CUI__TT_DRAGGED_DIM 0.45f /* opacity of the rows being dragged */
 #define CUI__TT_GHOST 0x6057u     /* salt of the drag's id: the ghost, and the pointer capture */
+#define CUI__TT_STATE 0x7EE5u     /* salt of the table's state id */
+#define CUI__TT_MENU 0x3E7Eu      /* salt of the context menu's popup id */
 
 /* where the drop line or outline shows on its row */
 enum { CUI__TT_MARK_NONE, CUI__TT_MARK_TOP, CUI__TT_MARK_BOTTOM, CUI__TT_MARK_ROW };
@@ -35,6 +37,9 @@ typedef struct {
     char icon[16];                     /* the first dragged node's icon, for the ghost */
     cui_spring lift;
     uint64_t drag_frame;               /* the frame the drag input last ran */
+    /* the context menu (cui_tree_table_menu_begin) */
+    int menu_node;                     /* the node it is for */
+    uint64_t menu_frame;               /* one past the frame the caller last asked for it, 0 never */
 } cui__tt_state;
 
 typedef struct cui__tt_build {
@@ -179,6 +184,66 @@ static bool cui__tt_prefix(const char *s, const char *p, int n) {
     return true;
 }
 
+/* ---- the context menu ---- */
+
+static float cui__tt_indent(const cui__tt_build *b, int depth, float keep);
+
+/* The caller builds the menu: it called cui_tree_table_menu_begin this frame or the last. */
+static bool cui__tt_has_menu(cui_ctx *ui, const cui__tt_state *st) { return st->menu_frame && ui->frame <= st->menu_frame; }
+
+/* Opens the menu for node at a point, over any other popup. */
+static void cui__tt_open_menu(cui_ctx *ui, cui__tt_build *b, int node, float x, float y) {
+    cui_id pid = b->id ^ CUI__TT_MENU;
+    cui__close_all_popups(ui);
+    cui__popup_set(ui, pid, true);
+    cui_popup *p = cui__popup_get(ui, pid, false);
+    if (!p) return;
+    p->at_mouse = true;
+    p->mouse.x = x; p->mouse.y = y;
+    b->st->menu_node = node;
+    ui->focus = b->id;   /* the keys come back to the tree when the menu closes */
+}
+
+/* A right press on visible row i, before the grid's selection goes back to
+ * the nodes: a row outside the selection becomes the selection, as in a file
+ * manager, and the cursor moves to it. */
+static void cui__tt_menu_press(cui_ctx *ui, cui__tt_build *b, int i) {
+    int node = b->rows[i].node;
+    if (node < 0 || !cui__tt_has_menu(ui, b->st)) return;
+    if (!b->sel[i]) {
+        for (int k = 0; k < b->nrows; k++) b->sel[k] = k == i;
+        b->plain_click = true;   /* nodes out of view drop their selection too */
+        b->vanchor = i;
+    }
+    b->vcursor = i;
+    b->st->cursor = node;
+    cui__tt_open_menu(ui, b, node, ui->mx, ui->my);
+}
+
+/* Shift+F10 on the cursor node, before the nodes' selection goes to the
+ * grid: the menu opens below the row, at its name. */
+static void cui__tt_menu_key(cui_ctx *ui, cui__tt_build *b, int cur) {
+    int i = cui__tt_visible(b, cur);
+    int n = cui__tt_node_of(b, i);
+    if (!cui__tt_ok(b, n) || b->rows[i].node < 0) return;
+    if (!(b->nodes[n].flags & CUI_TREE_SELECTED)) {
+        for (int k = 0; k < b->count; k++) b->nodes[k].flags &= ~(uint32_t)CUI_TREE_SELECTED;
+        b->nodes[n].flags |= CUI_TREE_SELECTED;
+        b->ev.selection_changed = true;
+        b->st->anchor = n;
+    }
+    b->st->cursor = n;
+    cui_rect view;
+    float row0, x = ui->mx, y = ui->my;
+    if (cui__grid_rows_at(ui, b->id, &view, &row0)) {
+        x = view.x + CUI__TT_PAD + cui__tt_indent(b, b->rows[i].depth, 0) + CUI__TT_CHEV;
+        y = CUI_CLAMP(row0 + (i + 1) * b->o.row_height, view.y, view.y + view.h);
+    }
+    cui__tt_open_menu(ui, b, n, x, y);
+}
+
+/* ---- keys ---- */
+
 static void cui__tt_keys(cui_ctx *ui, cui__tt_build *b) {
     cui__tt_state *st = b->st;
     int cur = cui__tt_ok(b, st->cursor) ? st->cursor : cui__tt_node_of(b, 0);
@@ -200,6 +265,11 @@ static void cui__tt_keys(cui_ctx *ui, cui__tt_build *b) {
         b->ev.activated = cur;
     }
     if (cui_key_pressed(ui, CUI_KEY_ESCAPE)) b->clear_all = true;   /* the grid clears the rows in view */
+    if (cui_shortcut(ui, CUI_MOD_SHIFT, CUI_KEY_F10) && cui__tt_has_menu(ui, st)) {
+        ui->kpressed[CUI_KEY_F10] = 0;
+        cui__tt_menu_key(ui, b, cur);
+        return;
+    }
     if (ui->mods & (CUI_MOD_CTRL | CUI_MOD_ALT | CUI_MOD_SUPER)) return;
     /* typing: * opens every sibling, letters jump to a name */
     bool typed = false;
@@ -233,7 +303,6 @@ static void cui__tt_keys(cui_ctx *ui, cui__tt_build *b) {
 
 /* ---- dragging rows ---- */
 
-static float cui__tt_indent(const cui__tt_build *b, int depth, float keep);
 
 /* The selected nodes in tree order, leaving out those inside another selected
  * node: they move with it. */
@@ -434,7 +503,7 @@ static void cui__tt_drop_mark(cui_ctx *ui, const cui__tt_build *b) {
  * the drop mark goes on its row. */
 static void cui__tt_row_drag(cui_ctx *ui, cui__tt_build *b, int i, int node) {
     cui__tt_state *st = b->st;
-    if (node >= 0 && !st->dragging && cui__grid_row_pressed(ui)) {
+    if (node >= 0 && !st->dragging && cui__grid_row_pressed(ui, CUI_MOUSE_LEFT)) {
         st->pending = true;
         st->press_node = node;
         st->press_x = ui->press_x; st->press_y = ui->press_y;   /* where the button went down */
@@ -496,7 +565,7 @@ void cui_tree_table_begin_ex(cui_ctx *ui, const char *id_str, const cui_grid_col
     cui__tt_build *b = cui__frame_alloc(ui, sizeof *b);
     memset(b, 0, sizeof *b);
     b->id = cui_make_id(ui, id_str);
-    cui_id sid = b->id ^ 0x7EE5u;
+    cui_id sid = b->id ^ CUI__TT_STATE;
     b->st = cui_state(ui, sid, sizeof *b->st);
     cui__state_set_dtor(ui, sid, cui__tt_free);
     cui__tt_state *st = b->st;
@@ -517,7 +586,7 @@ void cui_tree_table_begin_ex(cui_ctx *ui, const char *id_str, const cui_grid_col
     bool reflatten = false;
     if (b->o.draggable) reflatten = cui__tt_drag_input(ui, b);
     else st->dragging = st->pending = false;
-    if (ui->focus == b->id && b->nrows > 0) {
+    if (ui->focus == b->id && b->nrows > 0 && !cui__keys_covered(ui)) {   /* an open menu takes the keys */
         cui__tt_keys(ui, b);
         reflatten = true;   /* the keys may have opened or closed nodes */
     }
@@ -621,6 +690,7 @@ int cui_tree_table_row(cui_ctx *ui) {
         bool clicked = cui_data_grid_row(ui, i);
         cui__tt_row r = b->rows[i];
         if (b->o.draggable) cui__tt_row_drag(ui, b, i, r.node);
+        if (cui__grid_row_pressed(ui, CUI_MOUSE_RIGHT)) cui__tt_menu_press(ui, b, i);
         if (r.node < 0) { b->cur = -1; cui__tt_loading_cell(ui, b, r.depth); continue; }
         b->cur = i;
         if (clicked) {
@@ -663,6 +733,7 @@ void cui_tree_table_name(cui_ctx *ui, const char *label, const char *icon) {
         cui_id cid = cui__hash(&n, sizeof n, b->id ^ 0xC4E7u);
         cui__tt_chev *cs = cui_state(ui, cid, sizeof *cs);
         cui_interact r = cui__interact(ui, cid, 0);
+        if (r.right_clicked) cui__tt_menu_press(ui, b, b->cur);   /* the chevron is part of its row */
         if (r.clicked) {
             if (open) cui__tt_collapse(ui, b, n); else cui__tt_expand(ui, b, n);
             open = (N->flags & CUI_TREE_OPEN) != 0;
@@ -737,10 +808,25 @@ cui_tree_table_events cui_tree_table_end(cui_ctx *ui) {
     if (cui__tt_ok(b, a)) st->anchor = a;
     if (b->o.cursor) *b->o.cursor = st->cursor;
     if (b->o.sort) b->ev.sort_changed = b->o.sort->column != b->sort_before.column || b->o.sort->descending != b->sort_before.descending;
+    /* the menu closes when its node goes out of the tree or out of an open folder, or the caller stops asking for it */
+    cui_popup *menu = cui__popup_get(ui, b->id ^ CUI__TT_MENU, false);
+    if (menu && menu->open && (!cui__tt_has_menu(ui, st) || cui__tt_find(b, st->menu_node) < 0)) menu->open = false;
     cui__tt_slot *slot = cui__tt_slot_get(ui);
     slot->b = NULL;
     return b->ev;
 }
+
+bool cui_tree_table_menu_begin(cui_ctx *ui, const char *id_str, int *node) {
+    cui_id id = cui_make_id(ui, id_str);
+    cui__tt_state *st = cui_state(ui, id ^ CUI__TT_STATE, sizeof *st);
+    if (!st->init) return false;
+    st->menu_frame = ui->frame + 1;
+    if (!cui__popup_begin(ui, id ^ CUI__TT_MENU, 0, CUI_PLACE_BOTTOM_START, 0, 6, 0, true)) return false;
+    if (node) *node = st->menu_node;
+    return true;
+}
+
+void cui_tree_table_menu_end(cui_ctx *ui) { cui__popup_end(ui); }
 
 /* ---- sorting: a stable merge sort of each sibling list ---- */
 

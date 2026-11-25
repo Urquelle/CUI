@@ -1106,12 +1106,10 @@ static void td_init(void) {
     td_nodes[4].flags = CUI_TREE_HAS_CHILDREN;
     td_cursor = -1;
 }
-static void body_tree_table_drag(cui_ctx *ui) {
-    static const cui_grid_column cols[] = {
-        { "Name", 250, CUI_TEXT_LEFT, true, false, 0 }, { "Size", 90, CUI_TEXT_RIGHT, true, false, 1 }, { "Kind", 120, CUI_TEXT_LEFT, true, false, 2 },
-    };
-    cui_tree_table_begin(ui, "moves", cols, 3, td_nodes, TD_N, .height = CUI_PX(340), .cursor = &td_cursor, .guides = true,
-                         .label = td_label, .draggable = true);
+static const cui_grid_column td_cols[] = {
+    { "Name", 250, CUI_TEXT_LEFT, true, false, 0 }, { "Size", 90, CUI_TEXT_RIGHT, true, false, 1 }, { "Kind", 120, CUI_TEXT_LEFT, true, false, 2 },
+};
+static void td_rows(cui_ctx *ui) {
     int n;
     while ((n = cui_tree_table_row(ui)) >= 0) {
         bool folder = td_nodes[n].flags & CUI_TREE_HAS_CHILDREN;
@@ -1119,6 +1117,11 @@ static void body_tree_table_drag(cui_ctx *ui) {
         cui_data_grid_cell_text(ui, td_files[n].size);
         cui_data_grid_cell_text(ui, td_files[n].kind);
     }
+}
+static void body_tree_table_drag(cui_ctx *ui) {
+    cui_tree_table_begin(ui, "moves", td_cols, 3, td_nodes, TD_N, .height = CUI_PX(340), .cursor = &td_cursor, .guides = true,
+                         .label = td_label, .draggable = true);
+    td_rows(ui);
     cui_tree_table_end(ui);
 }
 static void scene_tree_table_drag(cui_ctx *ui, int f) {
@@ -1140,6 +1143,30 @@ static void scene_tree_table_drag(cui_ctx *ui, int f) {
     if (fr == 25) cui_input_mouse_button(ui, CUI_MOUSE_LEFT, true);
     if (fr >= 26 && fr <= 50) cui_input_mouse_move(ui, g.x + 110 + (fr - 26) * 3.0f, TD_ROW(2) + (TD_ROW(4) + 2 - TD_ROW(2)) * (fr - 26) / 24.0f);   /* onto render */
 #undef TD_ROW
+}
+/* A right click on a file: its row selected, the menu at the pointer. */
+static void body_tree_table_menu(cui_ctx *ui) {
+    cui_tree_table_begin(ui, "menu-tree", td_cols, 3, td_nodes, TD_N, .height = CUI_PX(340), .cursor = &td_cursor, .guides = true, .label = td_label);
+    td_rows(ui);
+    cui_tree_table_end(ui);
+    int node;
+    cui_tree_table_menu(ui, "menu-tree", &node) {
+        cui_menu_item(ui, "Open", .icon = CUI_ICON_EXTERNAL_LINK);
+        cui_menu_item(ui, "Rename", .icon = CUI_ICON_PENCIL, .shortcut = "F2");
+        cui_menu_item(ui, "Copy name", .icon = CUI_ICON_COPY);
+        cui_menu_separator(ui);
+        cui_menu_item(ui, "Delete", .icon = CUI_ICON_TRASH_2, .danger = true);
+    }
+}
+static void scene_tree_table_menu(cui_ctx *ui, int f) {
+    if (f >= 0) { frame_wrap(ui, body_tree_table_menu); return; }
+    int fr = -f - 1;
+    if (fr == 0) td_init();
+    cui_rect g = cui_get_rect(ui, cui_make_id(ui, "menu-tree"));
+    if (g.w <= 0) return;
+    if (fr == 4) cui_input_mouse_move(ui, g.x + 150, g.y + 40 + 32 * 3 + 16);   /* cui_treetable.c */
+    if (fr == 5) cui_input_mouse_button(ui, CUI_MOUSE_RIGHT, true);
+    if (fr == 6) cui_input_mouse_button(ui, CUI_MOUSE_RIGHT, false);
 }
 
 SCENE(tree_table) {
@@ -4675,7 +4702,8 @@ int main(int argc, char **argv) {
         { "checklist", scene_checklist, 500, 420, true }, { "toc", scene_toc_input, 760, 320, true },
         { "undo-toast", scene_undo, 460, 200, true },
         { "data-grid", scene_data_grid, 760, 312, true }, { "code-block", scene_code_block, 720, 340, true },
-        { "tree-table", scene_tree_table, 760, 576, true }, { "tree-table-drag", scene_tree_table_drag, 600, 420, true }, { "path-bar", scene_path_bar, 680, 330, true },
+        { "tree-table", scene_tree_table, 760, 576, true }, { "tree-table-drag", scene_tree_table_drag, 600, 420, true },
+        { "tree-table-menu", scene_tree_table_menu, 600, 420, true }, { "path-bar", scene_path_bar, 680, 330, true },
         { "json-view", scene_json_view, 560, 330, true }, { "markdown", scene_markdown, 700, 850, true },
         { "code-editor", scene_code_editor, 760, 446, true },
         { "code-editor-text", scene_code_editor_text, 620, 264, true },
