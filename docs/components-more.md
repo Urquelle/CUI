@@ -764,6 +764,23 @@ Where they land follows the pointer. Over a folder (a node with children or `CUI
 
 The table only reports the drop: `ev.dropped` lists the nodes in tree order, and they go `CUI_TREE_DROP_BEFORE`, `_INSIDE` (after the last child) or `_AFTER` `ev.drop_target`. `cui_tree_move` relinks your nodes to match, keeping their order, and returns the new first top level node. It refuses a target that is one of the nodes or inside one. Moving into a lazy folder whose children have not loaded yet links the nodes as its only children, so it will not ask for the rest: load the folder first, or leave the move to your data and reload it. There is no keyboard way to move nodes yet.
 
+#### Context menu
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="images/components/tree-table-menu-dark.png"><img src="images/components/tree-table-menu.png" alt="The context menu of a file in a tree table"></picture>
+
+```c
+cui_tree_table_events ev = cui_tree_table_end(ui);
+int node;
+cui_tree_table_menu(ui, "files", &node) {                 /* after the table, every frame */
+    if (cui_menu_item(ui, "Open", .icon = CUI_ICON_EXTERNAL_LINK)) open_file(node);
+    if (cui_menu_item(ui, "Rename", .icon = CUI_ICON_PENCIL)) start_rename(node);
+    cui_menu_separator(ui);
+    if (cui_menu_item(ui, "Delete", .icon = CUI_ICON_TRASH_2, .danger = true)) delete_selected();
+}
+```
+
+`cui_tree_table_menu` (or `cui_tree_table_menu_begin` and `_end`) with the table's id builds a menu for the node under the pointer. A right click on a row, its chevron included, opens it at the pointer, and Shift+F10 opens it for the cursor row, below the row at its name. The menu says which node it is for in `node`; fill it with `cui_menu_item`, `cui_menu_separator` and the other menu calls. As in a file manager, a right click on a row outside the selection selects that row alone first (`ev.selection_changed` reports it), and a right click inside a selection of several keeps it, so an item can act on `node` or on every `CUI_TREE_SELECTED` node. The cursor moves to the row either way. While the menu is open it has the keys: arrows, Enter and Esc work in the menu, not in the table. It closes when you choose an item, click elsewhere or press Esc, and also when its node is removed or hidden in a closed folder. A table whose menu you do not build ignores the right button, as before.
+
 When the table is narrower than its columns, columns with a `priority` hide, the highest number first, until the rest fit. Columns with priority 0 always stay, and so does the last column left. This is a data grid feature (`cui_grid_column.priority`), so plain grids can use it too. In the explorer above, Kind (3) goes first, then Modified (2), then Size (1); at phone width only Name is left.
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="images/components/path-bar-dark.png"><img src="images/components/path-bar.png" alt="Path bar"></picture>

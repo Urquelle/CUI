@@ -1205,6 +1205,34 @@ static void gt_init(void) {
     gt_nodes[7].flags |= CUI_TREE_OPEN;
 }
 
+/* The menu of node n: what a file manager offers on a right click. */
+static void gt_menu(cui_ctx *ui, int n) {
+    const char *name = gt_files[n].name;
+    if (gt_folder(n)) {
+        bool open = (gt_nodes[n].flags & CUI_TREE_OPEN) != 0;
+        if (cui_menu_item(ui, open ? "Collapse" : "Expand", .icon = open ? CUI_ICON_FOLDER : CUI_ICON_FOLDER_OPEN)) gt_nodes[n].flags ^= CUI_TREE_OPEN;
+    } else if (cui_menu_item(ui, "Open", .icon = CUI_ICON_EXTERNAL_LINK)) {
+        snprintf(gt_status, sizeof gt_status, "Opened %s.", name);
+    }
+    if (cui_menu_item(ui, "Copy name", .icon = CUI_ICON_COPY)) {
+        cui_set_clipboard_text(ui, name);
+        snprintf(gt_status, sizeof gt_status, "Copied \xe2\x80\x9c%s\xe2\x80\x9d.", name);
+    }
+    if (cui_menu_item(ui, "Info", .icon = CUI_ICON_INFO)) {
+        int kids = 0;
+        for (int k = gt_nodes[n].first_child; k >= 0; k = gt_nodes[k].next_sibling) kids++;
+        if (gt_folder(n)) snprintf(gt_status, sizeof gt_status, "%s: folder, %d item%s.", name, kids, kids == 1 ? "" : "s");
+        else snprintf(gt_status, sizeof gt_status, "%s: %s, %s.", name, gt_files[n].kind, gt_files[n].size);
+    }
+    cui_menu_separator(ui);
+    if (cui_menu_item(ui, "Move to top level", .icon = CUI_ICON_ARROW_UP, .disabled = gt_nodes[n].parent < 0)) {
+        int last = gt_root;
+        while (gt_nodes[last].next_sibling >= 0) last = gt_nodes[last].next_sibling;
+        gt_root = cui_tree_move(gt_nodes, GT_N, gt_root, &n, 1, last, CUI_TREE_DROP_AFTER);
+        snprintf(gt_status, sizeof gt_status, "Moved %s to the top level.", name);
+    }
+}
+
 static void gt_tree(cui_ctx *ui) {
     static bool init;
     if (!init) { gt_init(); init = true; }
@@ -1234,6 +1262,8 @@ static void gt_tree(cui_ctx *ui) {
         if (parent >= 0) snprintf(gt_status, sizeof gt_status, "Moved %s into %s.", what ? what : many, gt_files[parent].name);
         else snprintf(gt_status, sizeof gt_status, "Moved %s to the top level.", what ? what : many);
     }
+    int menu_node = -1;
+    cui_tree_table_menu(ui, "project", &menu_node) gt_menu(ui, menu_node);
     cui_row(ui, .gap = 8, .align = CUI_ALIGN_CENTER, .wrap = true) {
         if (cui_button(ui, "Reset", .icon = CUI_ICON_ROTATE_CCW, .variant = CUI_BUTTON_OUTLINE)) {
             gt_init();
@@ -1259,7 +1289,7 @@ static void page_files(cui_ctx *ui) {
     cui_file_picker(ui, "open", &open_dlg, chosen, sizeof chosen, .list = files_list);
     cui_file_picker(ui, "save", &save_dlg, chosen, sizeof chosen, .list = files_list, .save = true, .name = "untitled.txt");
 
-    section(ui, "Tree table", "Drag rows to move them: before, after or into a folder. Esc cancels; Shift and Ctrl select several.");
+    section(ui, "Tree table", "Drag rows to move them: before, after or into a folder. Esc cancels; Shift and Ctrl select several. Right-click a row, or press Shift+F10, for its menu.");
     gt_tree(ui);
 
     /* a small shell over the same folder */

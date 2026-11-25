@@ -1519,7 +1519,20 @@ CUI_API bool cui_filter_bar(cui_ctx *ui, const char *id, const cui_filter_field 
  * only reports the drop; move the nodes with cui_tree_move:
  *
  *     if (ev.drop_count > 0)
- *         root = cui_tree_move(nodes, count, root, ev.dropped, ev.drop_count, ev.drop_target, ev.drop_where); */
+ *         root = cui_tree_move(nodes, count, root, ev.dropped, ev.drop_count, ev.drop_target, ev.drop_where);
+ *
+ * A context menu for the node under the pointer: build it after
+ * cui_tree_table_end with the table's id, every frame. A right click on a
+ * row (or Shift+F10 on the cursor row) opens it at the pointer; a row
+ * outside the selection becomes the selection first, so the menu acts on
+ * the selection or, for a single node, on `node`. It closes when its node
+ * is hidden or removed. A table whose caller never builds the menu ignores
+ * the right button.
+ *
+ *     int node;
+ *     cui_tree_table_menu(ui, "files", &node) {
+ *         if (cui_menu_item(ui, "Rename")) rename_node(node);
+ *     } */
 enum {
     CUI_TREE_HAS_CHILDREN = 1 << 0,   /* shows a chevron before its children are loaded */
     CUI_TREE_OPEN         = 1 << 1,   /* expanded (the table toggles it) */
@@ -1567,6 +1580,11 @@ CUI_API int cui_tree_table_row(cui_ctx *ui);
 CUI_API void cui_tree_table_name(cui_ctx *ui, const char *label, const char *icon);
 CUI_API int cui_tree_table_depth(cui_ctx *ui);   /* depth of the current row, 0 at the top */
 CUI_API cui_tree_table_events cui_tree_table_end(cui_ctx *ui);
+/* The context menu of table `id` (after cui_tree_table_end): true while it
+ * is open, with the node it was opened for in *node; fill it with
+ * cui_menu_item and friends, then call cui_tree_table_menu_end. */
+CUI_API bool cui_tree_table_menu_begin(cui_ctx *ui, const char *id, int *node);
+CUI_API void cui_tree_table_menu_end(cui_ctx *ui);
 /* Sorts every sibling list (stable) by cmp, relinking the nodes. Returns
  * the new first top level node. */
 CUI_API int cui_tree_sort(cui_tree_node *nodes, int node_count, int root, int (*cmp)(void *user, int a, int b), void *user);
@@ -5237,6 +5255,7 @@ CUI_API const cui_draw_data *cui_get_draw_data(cui_ctx *ui);
 #define cui_tour(ui, id, steps, count, step, ...) cui_tour_ex((ui), (id), (steps), (count), (step), CUI__OPTS(cui_tour_opts, __VA_ARGS__))
 #define cui_menu(ui, label, ...)            CUI__SCOPE_IF(cui_menu_begin((ui), (label), CUI__OPTS(cui_menu_opts, __VA_ARGS__)), cui_menu_end(ui))
 #define cui_context_menu(ui, id)            CUI__SCOPE_IF(cui_context_menu_begin((ui), (id)), cui_context_menu_end(ui))
+#define cui_tree_table_menu(ui, id, node)  CUI__SCOPE_IF(cui_tree_table_menu_begin((ui), (id), (node)), cui_tree_table_menu_end(ui))
 #define cui_menu_item(ui, label, ...)       cui_menu_item_ex((ui), (label), CUI__OPTS(cui_menu_item_opts, __VA_ARGS__))
 #define cui_dialog(ui, title, open, ...)    CUI__SCOPE_IF(cui_dialog_begin((ui), (title), (open), CUI__OPTS(cui_dialog_opts, __VA_ARGS__)), cui_dialog_end(ui))
 #define cui_dialog_footer(ui)               CUI__SCOPE(cui_dialog_footer_begin(ui), cui_dialog_footer_end(ui))

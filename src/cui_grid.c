@@ -34,6 +34,7 @@ struct cui_grid_build {
     bool clicked_row;
     bool row_double;         /* the current row was double clicked this frame */
     bool row_pressed;        /* the current row was pressed this frame */
+    bool row_right;          /* the current row was pressed with the right button this frame */
     bool focused;
 };
 
@@ -134,7 +135,8 @@ bool cui_data_grid_begin_ex(cui_ctx *ui, const char *id_str, const cui_grid_colu
     /* keyboard: the grid is one tab stop; arrows move the cursor row */
     cui_interact gr = cui__interact(ui, b->id, CUI_IF_FOCUSABLE);
     b->focused = ui->focus == b->id;
-    if (b->focused && nrows > 0 && st->edit_row < 0) {
+    bool keys = b->focused && !cui__keys_covered(ui);   /* an open menu over the grid takes the keys */
+    if (keys && nrows > 0 && st->edit_row < 0) {
         int c = st->cursor < 0 ? 0 : st->cursor;
         int page = (int)(view_h / b->row_h) - 1;
         if (cui_key_pressed(ui, CUI_KEY_DOWN)) c++;
@@ -313,6 +315,7 @@ bool cui_data_grid_row(cui_ctx *ui, int row) {
     bool clicked = false;
     b->row_double = r.double_clicked || (r.clicked && ui->click_count >= 2);
     b->row_pressed = r.hovered && ui->mpressed[0];
+    b->row_right = r.right_clicked;
     if (r.clicked) {
         clicked = true;
         if (st->edit_row < 0) ui->focus = b->id;   /* a cell editor that just opened keeps the focus */
@@ -433,7 +436,7 @@ bool cui_data_grid_edit(cui_ctx *ui, char *buf, size_t cap) {
         bool over = cui__rect_contains(cr, ui->mx, ui->my);
         bool start = b->row_double && over;
         /* Enter on the cursor row edits its first editable cell */
-        if (!start && b->focused && st->cursor == b->row && st->edit_row < 0 && cui_key_pressed(ui, CUI_KEY_ENTER)) {
+        if (!start && b->focused && st->cursor == b->row && st->edit_row < 0 && cui_key_pressed(ui, CUI_KEY_ENTER) && !cui__keys_covered(ui)) {
             start = true;
             ui->kpressed[CUI_KEY_ENTER] = 0;
         }
@@ -507,9 +510,9 @@ void cui__grid_scroll_by(cui_ctx *ui, cui_id id, float dy) {
     ui->animating = true;
 }
 
-bool cui__grid_row_pressed(cui_ctx *ui) {
+bool cui__grid_row_pressed(cui_ctx *ui, cui_mouse_button button) {
     struct cui_grid_build *b = ui->building.grid;
-    return b && b->in_row && b->row_pressed;
+    return b && b->in_row && (button == CUI_MOUSE_RIGHT ? b->row_right : b->row_pressed);
 }
 
 /* ------------------------------------------------------------------------ */
