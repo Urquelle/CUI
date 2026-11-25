@@ -793,6 +793,8 @@ float cui__fl_tick_x(float px0, double k, double t0, double origin, double q, do
 const char *cui__fl_tick(cui_ctx *ui, double t, double step);
 const char *cui__fl_dur(cui_ctx *ui, double s);
 void cui__scroll_end_ex(cui_ctx *ui);
+/* moves scroll area scroll_id the least that shows row_id, both from last frame's layout (cui_widgets.c) */
+void cui__scroll_reveal(cui_ctx *ui, cui_id scroll_id, cui_id row_id);
 /* the data grid's rows, for the tree table that drags over them (cui_grid.c): where grid `id`
  * put its rows last frame (the area under the sticky header, and the top of row 0, which moves
  * with the scroll), false before its first layout; a nudge of its scroll target; and whether

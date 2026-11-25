@@ -1671,6 +1671,60 @@ static void test_api(void) {
     cui_destroy(ui);
 }
 
+/* Up and Down keep the selected endpoint in view, moving the list the least:
+ * not at all while it is wholly visible, to its bottom edge below the view and
+ * to its top above it. The rows are found by the explorer's own row ids. */
+uint32_t cui__hash(const void *data, size_t len, uint32_t seed);
+static cui_api_endpoint ax_many[30];
+static void build_ax_many(cui_ctx *ui, void *u) {
+    ax_ctx *c = u;
+    c->r = cui_api_explorer(ui, "api", ax_many, 30, .height = 360, .selected = &c->sel);
+}
+static cui_rect ax_row(cui_ctx *ui, int i) { return cui_get_rect(ui, cui__hash(&i, sizeof i, cui_make_id(ui, "api") ^ 0xA9E0u)); }
+static void test_api_reveal(void) {
+    printf("API explorer: keys keep the selected endpoint in view\n");
+    for (int i = 0; i < 30; i++) ax_many[i] = (cui_api_endpoint){ "GET", "/items", "One endpoint", "Items", false, NULL, 0 };
+    ax_ctx c;
+    memset(&c, 0, sizeof c);
+    c.sel = -1; c.try_it = -1;
+    cui_ctx *ui = new_ctx(800, 600);
+    run(ui, build_ax_many, &c, 3);
+    cui_push_id(ui, "api");
+    cui_id list = cui_make_id(ui, "list");
+    cui_pop_id(ui);
+    cui_rect v = cui_get_rect(ui, list), r0 = ax_row(ui, 0);
+    CHECK(v.h > 100 && r0.h > 10);
+    click(ui, build_ax_many, &c, r0.x + r0.w * 0.6f, r0.y + r0.h / 2);
+    CHECK_EQ(c.sel, 0);
+    int stayed = 0, moved = 0;
+    bool minimal = true, inside = true;
+    for (int k = 1; k < 30; k++) {
+        cui_rect before = ax_row(ui, k), first = ax_row(ui, 0);
+        bool shown = before.y >= v.y && before.y + before.h <= v.y + v.h;
+        key(ui, build_ax_many, &c, CUI_KEY_DOWN, 0);
+        run(ui, build_ax_many, &c, 1);
+        CHECK_EQ(c.sel, k);
+        cui_rect r = ax_row(ui, k);
+        if (r.y < v.y - 1 || r.y + r.h > v.y + v.h + 1) inside = false;   /* offsets round to whole pixels */
+        if (shown) { stayed++; if (fabsf(ax_row(ui, 0).y - first.y) > 0.01f) minimal = false; }
+        else { moved++; if (fabsf(r.y + r.h - (v.y + v.h)) > 1) minimal = false; }   /* its bottom edge at the bottom */
+    }
+    CHECK(stayed > 2 && moved > 2); CHECK(minimal); CHECK(inside);
+    stayed = moved = 0;
+    for (int k = 28; k >= 0; k--) {
+        cui_rect before = ax_row(ui, k), last = ax_row(ui, 29);
+        bool shown = before.y >= v.y && before.y + before.h <= v.y + v.h;
+        key(ui, build_ax_many, &c, CUI_KEY_UP, 0);
+        run(ui, build_ax_many, &c, 1);
+        cui_rect r = ax_row(ui, k);
+        if (r.y < v.y - 1 || r.y + r.h > v.y + v.h + 1) inside = false;   /* offsets round to whole pixels */
+        if (shown) { stayed++; if (fabsf(ax_row(ui, 29).y - last.y) > 0.01f) minimal = false; }
+        else { moved++; if (fabsf(r.y - v.y) > 1) minimal = false; }   /* its top edge at the top */
+    }
+    CHECK_EQ(c.sel, 0); CHECK(stayed > 2 && moved > 2); CHECK(minimal); CHECK(inside);
+    cui_destroy(ui);
+}
+
 /* the second ten, at three widths, both directions and themes, under random input */
 typedef struct { rt_ctx rt; tx_ctx tx; st_ctx st; rq_ctx rq; up_ctx up; th_ctx th; cv_ctx cv; bl_ctx bl; ff_ctx ff; ax_ctx ax; } all2_ctx;
 static void build_all2(cui_ctx *ui, void *u) {
@@ -1762,6 +1816,7 @@ int main(void) {
     test_blame_no_commits();
     test_flags();
     test_api();
+    test_api_reveal();
     test_random2();
     cui_sw_destroy(g_sw);
     printf("\n%d checks, %d failed\n", g_checks, g_failed);

@@ -1376,6 +1376,16 @@ void cui_scroll_to(cui_ctx *ui, const char *scroll_id, float y) {
     st->ty = y < 0 ? 0 : y;
 }
 
+/* scrolls a scroll area so a row that was laid out last frame is in view */
+void cui__scroll_reveal(cui_ctx *ui, cui_id scroll_id, cui_id row_id) {
+    if (!cui__has_prev_rect(ui, row_id) || !cui__has_prev_rect(ui, scroll_id)) return;
+    cui_rect r = cui__prev_rect(ui, row_id), c = cui__prev_rect(ui, scroll_id);
+    cui_scroll_state *ss = cui_state(ui, scroll_id, sizeof *ss);
+    if (r.y < c.y) ss->ty -= c.y - r.y;
+    else if (r.y + r.h > c.y + c.h) ss->ty += r.y + r.h - (c.y + c.h);
+    if (ss->ty < 0) ss->ty = 0;
+}
+
 /* ------------------------------------------------------------------------ */
 /* Split view                                                               */
 /* ------------------------------------------------------------------------ */
