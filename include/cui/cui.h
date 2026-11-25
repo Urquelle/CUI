@@ -5085,10 +5085,15 @@ CUI_API void cui_pop_clip(cui_ctx *ui);
  * runs after layout (during cui_end_frame), with the final rectangle; inside
  * a disabled scope (cui_push_disabled) it sees cui_is_disabled return true.
  * `user` is shallow-copied into frame memory (`user_size` bytes); any pointer
- * fields inside `user` must stay valid until cui_end_frame — use
+ * fields inside `user` must stay valid until cui_end_frame; use
  * cui_frame_alloc / cui_frame_strdup for temporary strings or slices.
  * Returns interaction info. */
 typedef void (*cui_paint_fn)(cui_ctx *ui, cui_rect rect, void *user);
+/* `rect` is where the canvas was laid out in the previous frame, in window
+ * points (zero in its first frame), and `mouse` is the pointer relative to
+ * that rectangle's top-left corner. The paint callback gets this frame's final
+ * rectangle, which differs when the canvas moved or resized; for hits kept in
+ * window coordinates, use cui_mouse_pos. */
 typedef struct cui_canvas_result { cui_rect rect; bool hovered, pressed, clicked; cui_vec2 mouse; } cui_canvas_result;
 CUI_API cui_canvas_result cui_canvas(cui_ctx *ui, const char *id, cui_size width, cui_size height, cui_paint_fn paint, const void *user, size_t user_size);
 /* A zeroed options struct gives the same behavior as cui_canvas. */
