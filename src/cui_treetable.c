@@ -204,12 +204,15 @@ static void cui__tt_open_menu(cui_ctx *ui, cui__tt_build *b, int node, float x, 
     ui->focus = b->id;   /* the keys come back to the tree when the menu closes */
 }
 
+/* The menu may open: the caller builds it, and no row is held to drag. */
+static bool cui__tt_menu_may_open(cui_ctx *ui, const cui__tt_state *st) { return cui__tt_has_menu(ui, st) && !st->pending && !st->dragging; }
+
 /* A right press on visible row i, before the grid's selection goes back to
  * the nodes: a row outside the selection becomes the selection, as in a file
  * manager, and the cursor moves to it. */
 static void cui__tt_menu_press(cui_ctx *ui, cui__tt_build *b, int i) {
     int node = b->rows[i].node;
-    if (node < 0 || !cui__tt_has_menu(ui, b->st)) return;
+    if (node < 0 || !cui__tt_menu_may_open(ui, b->st)) return;
     if (!b->sel[i]) {
         for (int k = 0; k < b->nrows; k++) b->sel[k] = k == i;
         b->plain_click = true;   /* nodes out of view drop their selection too */
@@ -265,7 +268,7 @@ static void cui__tt_keys(cui_ctx *ui, cui__tt_build *b) {
         b->ev.activated = cur;
     }
     if (cui_key_pressed(ui, CUI_KEY_ESCAPE)) b->clear_all = true;   /* the grid clears the rows in view */
-    if (cui_shortcut(ui, CUI_MOD_SHIFT, CUI_KEY_F10) && cui__tt_has_menu(ui, st)) {
+    if (cui_shortcut(ui, CUI_MOD_SHIFT, CUI_KEY_F10) && cui__tt_menu_may_open(ui, st)) {
         ui->kpressed[CUI_KEY_F10] = 0;
         cui__tt_menu_key(ui, b, cur);
         return;

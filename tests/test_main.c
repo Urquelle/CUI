@@ -3558,6 +3558,21 @@ static void test_tree_table_menu(void) {
     t.menu = true;
     run(ui, build_ttab, &t, 30);
     CHECK(!t.menu_shown);
+    /* not while a row is held to drag: neither a right press nor Shift+F10 opens it, and the drop still lands */
+    { int drops = t.drops;
+      float x = g.x + 300, y = ttab_row_y(g, 1);
+      cui_input_mouse_move(ui, x, y);
+      run(ui, build_ttab, &t, 1);
+      cui_input_mouse_button(ui, CUI_MOUSE_LEFT, true);
+      run(ui, build_ttab, &t, 1);
+      ttab_right_click(ui, &t, x, y);   /* the left button is still down: the press may become a drag */
+      CHECK(!t.menu_shown);
+      for (int i = 1; i <= 4; i++) { cui_input_mouse_move(ui, x, y + 8 * i); run(ui, build_ttab, &t, 1); }
+      key(ui, build_ttab, &t, CUI_KEY_F10, CUI_MOD_SHIFT);
+      CHECK(!t.menu_shown);
+      cui_input_mouse_button(ui, CUI_MOUSE_LEFT, false);
+      run(ui, build_ttab, &t, 2);
+      CHECK(!t.menu_shown && t.drops == drops + 1); }
     cui_destroy(ui);
 }
 
