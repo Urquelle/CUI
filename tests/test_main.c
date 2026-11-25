@@ -1417,6 +1417,113 @@ static void test_nested_textarea_mixed_wheel(void) {
     cui_destroy(ui);
 }
 
+/* rows of different heights in a 200 point list; row 9 is taller than the list */
+typedef struct { cui_id row[12], stray; int reveal; bool before; } reveal_ctx;
+static float reveal_row_h(int i) { return i == 9 ? 260.0f : 30.0f + (float)(i % 3) * 12.0f; }
+static void build_reveal(cui_ctx *ui, void *u) {
+    reveal_ctx *c = u;
+    if (c->before && c->reveal >= 0) cui_scroll_reveal(ui, "list", c->row[c->reveal]);
+    cui_scroll(ui, .id = "list", .width = CUI_PX(300), .height = CUI_PX(200), .gap = 4) {
+        for (int i = 0; i < 12; i++) {
+            cui_push_id_int(ui, i);
+            c->row[i] = cui_box_begin(ui, &(cui_box){ .id = "row", .width = CUI_FILL, .height = CUI_PX(reveal_row_h(i)) });
+            cui_box_end(ui);
+            cui_pop_id(ui);
+            if (!c->before && i == c->reveal) cui_scroll_reveal(ui, "list", c->row[i]);
+        }
+    }
+    if (c->stray) cui_scroll_reveal(ui, "list", c->stray);   /* an id with no rectangle */
+}
+/* reveals row i (once), lets the list settle and returns how far it moved */
+static float reveal_step(cui_ctx *ui, reveal_ctx *c, int i, int frames) {
+    float y0 = rect_of(ui, c->row[0]).y;
+    c->reveal = i;
+    run(ui, build_reveal, c, 1);
+    c->reveal = -1;
+    run(ui, build_reveal, c, frames);
+    return y0 - rect_of(ui, c->row[0]).y;
+}
+
+/** cui_scroll_reveal moves a list the least that shows a row, and only when it must. */
+static void test_scroll_reveal(void) {
+    printf("scroll: reveal a row with the least movement\n");
+    cui_ctx *ui = new_ctx();
+    reveal_ctx c;
+    memset(&c, 0, sizeof c);
+    c.reveal = -1;
+    cui_id list = cui_make_id(ui, "list");
+    /* before the first layout no rectangle is known: nothing moves, nothing breaks */
+    c.reveal = 5;
+    run(ui, build_reveal, &c, 1);
+    c.reveal = -1;
+    run(ui, build_reveal, &c, 2);
+    cui_rect v = rect_of(ui, list);
+    CHECK_NEAR(rect_of(ui, c.row[0]).y, v.y, 0.01);
+
+    /* wholly visible: no movement */
+    CHECK(rect_of(ui, c.row[3]).y + rect_of(ui, c.row[3]).h <= v.y + v.h);
+    CHECK_NEAR(reveal_step(ui, &c, 3, 2), 0, 0.01);
+    CHECK_NEAR(reveal_step(ui, &c, 0, 2), 0, 0.01);
+
+    /* below: just enough to show its bottom edge */
+    cui_rect r = rect_of(ui, c.row[6]);
+    CHECK(r.y + r.h > v.y + v.h);
+    CHECK_NEAR(reveal_step(ui, &c, 6, 2), r.y + r.h - (v.y + v.h), 0.01);
+    r = rect_of(ui, c.row[6]);
+    CHECK_NEAR(r.y + r.h, v.y + v.h, 0.01);
+    CHECK_NEAR(reveal_step(ui, &c, 6, 2), 0, 0.01);   /* now in view: stays */
+    CHECK_NEAR(reveal_step(ui, &c, 5, 2), 0, 0.01);   /* above it, still in view */
+
+    /* above: to its top edge */
+    r = rect_of(ui, c.row[1]);
+    CHECK(r.y < v.y);
+    CHECK_NEAR(reveal_step(ui, &c, 1, 2), r.y - v.y, 0.01);
+    CHECK_NEAR(rect_of(ui, c.row[1]).y, v.y, 0.01);
+
+    /* taller than the list: its top at the top, from below and with its top in view */
+    CHECK(rect_of(ui, c.row[9]).y > v.y + v.h);
+    reveal_step(ui, &c, 9, 2);
+    CHECK_NEAR(rect_of(ui, c.row[9]).y, v.y, 0.01);
+    CHECK_NEAR(reveal_step(ui, &c, 9, 2), 0, 0.01);
+    cui_scroll_to(ui, "list", 0);
+    run(ui, build_reveal, &c, 2);
+    cui_scroll_to(ui, "list", rect_of(ui, c.row[9]).y - v.y - 100);
+    run(ui, build_reveal, &c, 2);   /* row 9's top halfway down, its bottom far below */
+    r = rect_of(ui, c.row[9]);
+    CHECK(r.y > v.y && r.y < v.y + v.h);
+    CHECK_NEAR(reveal_step(ui, &c, 9, 2), r.y - v.y, 0.01);
+    CHECK_NEAR(rect_of(ui, c.row[9]).y, v.y, 0.01);
+
+    /* called before the area is built, as when keys are handled first: the same */
+    c.before = true;
+    r = rect_of(ui, c.row[2]);
+    CHECK_NEAR(reveal_step(ui, &c, 2, 2), r.y - v.y, 0.01);
+    c.before = false;
+
+    /* an id that was never laid out: nothing moves */
+    c.stray = cui_make_id(ui, "nowhere");
+    float y0 = rect_of(ui, c.row[0]).y;
+    run(ui, build_reveal, &c, 3);
+    CHECK_NEAR(rect_of(ui, c.row[0]).y, y0, 0.01);
+    c.stray = 0;
+    cui_destroy(ui);
+
+    /* with motion on, a second reveal while the list is still moving does not overshoot */
+    ui = new_ctx();
+    cui_set_reduced_motion(ui, false);
+    memset(&c, 0, sizeof c);
+    c.reveal = -1;
+    run(ui, build_reveal, &c, 3);
+    c.reveal = 6;
+    run(ui, build_reveal, &c, 1);
+    c.reveal = -1;
+    run(ui, build_reveal, &c, 2);    /* partway there */
+    reveal_step(ui, &c, 7, 120);
+    r = rect_of(ui, c.row[7]);
+    CHECK_NEAR(r.y + r.h, v.y + v.h, 0.6);   /* settled offsets round to whole pixels */
+    cui_destroy(ui);
+}
+
 /** Give the number field room for the draft and both step buttons. */
 static void build_number_edit(cui_ctx *ui, void *user) {
     cui_number(ui, "quantity", user, 0, 99, .width = CUI_PX(240));
@@ -10882,6 +10989,7 @@ int main(void) {
     test_textarea_and_clear();
     test_textarea_ime_caret();
     test_nested_textarea_wheel();
+    test_scroll_reveal();
     test_canvas_wheel();
     test_image_update();
     test_canvas_frame_alloc();

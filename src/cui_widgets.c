@@ -1376,14 +1376,22 @@ void cui_scroll_to(cui_ctx *ui, const char *scroll_id, float y) {
     st->ty = y < 0 ? 0 : y;
 }
 
-/* scrolls a scroll area so a row that was laid out last frame is in view */
+/* Scrolls a scroll area the least that shows a row laid out last frame: not at all when
+ * it is wholly in view, else to its clipped edge; a row taller than the view gets its
+ * top at the top. The row is placed where it will be once the area reaches its target,
+ * so a reveal while the area is still moving does not overshoot. */
 void cui__scroll_reveal(cui_ctx *ui, cui_id scroll_id, cui_id row_id) {
     if (!cui__has_prev_rect(ui, row_id) || !cui__has_prev_rect(ui, scroll_id)) return;
     cui_rect r = cui__prev_rect(ui, row_id), c = cui__prev_rect(ui, scroll_id);
     cui_scroll_state *ss = cui_state(ui, scroll_id, sizeof *ss);
-    if (r.y < c.y) ss->ty -= c.y - r.y;
-    else if (r.y + r.h > c.y + c.h) ss->ty += r.y + r.h - (c.y + c.h);
+    float top = r.y - c.y + ss->laid_y - ss->ty;   /* below the top of the view, at the target */
+    if (top < 0 || r.h > c.h) ss->ty += top;
+    else if (top + r.h > c.h) ss->ty += top + r.h - c.h;
     if (ss->ty < 0) ss->ty = 0;
+}
+
+void cui_scroll_reveal(cui_ctx *ui, const char *scroll_id, cui_id row) {
+    cui__scroll_reveal(ui, cui_make_id(ui, scroll_id), row);
 }
 
 /* ------------------------------------------------------------------------ */

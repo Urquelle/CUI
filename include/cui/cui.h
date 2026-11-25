@@ -559,6 +559,11 @@ typedef struct cui_scroll_opts {
 CUI_API void cui_scroll_begin(cui_ctx *ui, const cui_scroll_opts *opts);
 CUI_API void cui_scroll_end(cui_ctx *ui);
 CUI_API void cui_scroll_to(cui_ctx *ui, const char *scroll_id, float y);
+/* Scrolls the area the least that shows `row` (any id from cui_box_begin, cui_last_id or
+ * cui_make_id), comparing both rectangles from the latest layout: nothing when the row is
+ * wholly in view or either rectangle is not known yet, else just enough to show its clipped
+ * edge; a row taller than the view gets its top at the top. For keyboard selection in a list. */
+CUI_API void cui_scroll_reveal(cui_ctx *ui, const char *scroll_id, cui_id row);
 
 /* Resizable split view: two panes with a draggable divider. `ratio` is the
  * size of the first pane in 0..1. Call cui_split_next between the panes. */

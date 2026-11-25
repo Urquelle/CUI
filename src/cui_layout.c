@@ -816,6 +816,7 @@ static void cui__place(cui_ctx *ui, int i) {
         ss->content_h = n->content_h;
         ss->view_w = n->rect.w;
         ss->view_h = n->rect.h;
+        ss->laid_y = ss->y;
     }
     for (int c = n->first; c >= 0; c = ui->nodes[c].next) cui__place(ui, c);
     for (int c = n->abs_first; c >= 0; c = ui->nodes[c].next) {
