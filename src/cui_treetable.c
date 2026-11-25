@@ -811,9 +811,10 @@ cui_tree_table_events cui_tree_table_end(cui_ctx *ui) {
     if (cui__tt_ok(b, a)) st->anchor = a;
     if (b->o.cursor) *b->o.cursor = st->cursor;
     if (b->o.sort) b->ev.sort_changed = b->o.sort->column != b->sort_before.column || b->o.sort->descending != b->sort_before.descending;
-    /* the menu closes when its node goes out of the tree or out of an open folder, or the caller stops asking for it */
+    /* the menu closes when its node goes out of the tree or out of an open folder, the caller stops asking
+     * for it, or the table is disabled */
     cui_popup *menu = cui__popup_get(ui, b->id ^ CUI__TT_MENU, false);
-    if (menu && menu->open && (!cui__tt_has_menu(ui, st) || cui__tt_find(b, st->menu_node) < 0)) menu->open = false;
+    if (menu && menu->open && (!cui__tt_has_menu(ui, st) || cui__tt_find(b, st->menu_node) < 0 || cui_is_disabled(ui))) menu->open = false;
     cui__tt_slot *slot = cui__tt_slot_get(ui);
     slot->b = NULL;
     return b->ev;

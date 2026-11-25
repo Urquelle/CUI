@@ -3573,6 +3573,15 @@ static void test_tree_table_menu(void) {
       cui_input_mouse_button(ui, CUI_MOUSE_LEFT, false);
       run(ui, build_ttab, &t, 2);
       CHECK(!t.menu_shown && t.drops == drops + 1); }
+    /* a table that becomes disabled closes its menu, and it stays closed when the table comes back */
+    ttab_right_click(ui, &t, g.x + 300, ttab_row_y(g, 0));
+    CHECK(t.menu_shown);
+    t.disabled = true;
+    run(ui, build_ttab, &t, 30);
+    CHECK(!t.menu_shown);
+    t.disabled = false;
+    run(ui, build_ttab, &t, 30);
+    CHECK(!t.menu_shown);
     cui_destroy(ui);
 }
 
