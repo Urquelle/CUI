@@ -2,7 +2,9 @@
 
 What changed in CUI, newest first. Every component mentioned here runs live in the docs.
 
-## Unreleased
+## 2026-11-25 · 1.5: phones, GPU renderers and many fixes
+
+Experimental Android and iOS backends with multi-touch input, Direct3D 12, Vulkan and Metal renderers beside OpenGL, and native Wayland through SDL2. Windows can be maximized, minimized, restored and reopened where they were. Tree tables drag rows and open a context menu, custom canvases take keyboard focus, ordered input and the wheel, and lists can keep a row in view with `cui_scroll_reveal`. New components draw in dots (dither, spinners, voice), and there are creative controls and canvas bars. Most of this release is fixes: keyboard and focus in many components, disabled and read-only states, drags, Windows dialogs and window animations, idle X11 windows, input methods on every desktop backend and memory safety.
 
 ### Added
 
