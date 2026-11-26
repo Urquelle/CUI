@@ -13,15 +13,19 @@ and is proposed to the project in [yappologistic/CUI#139](https://github.com/yap
 
 ## What it does
 
-- **Palette**: 61 kinds in eight groups. A click on a group's heading folds it. Drag a component onto the preview, or click it to add it after the selection.
-  - *Layout*: column, row and grid (with a theme background, border and radius), scroll area, accordion, split view (the first child is the first pane), card, separator, spacer.
+- **Palette**: 93 kinds in eleven groups. A click on a group's heading folds it. Drag a component onto the preview, or click it to add it after the selection.
+  - *Layout*: column, row and grid (with a theme background, border and radius), scroll area, accordion, split view (the first child is the first pane), card, expandable card, separator, spacer.
   - *Overlays*: dialog, dialog footer (the dialog's button row) and sheet. A dialog shows in the designer while it or something in it is selected; in *Try it* and in the app it opens when its state field is true. A button, icon button or link opens or closes one with its *Opens* and *Closes* properties.
-  - *Text*: heading, text, link, key cap, icon.
+  - *Text*: heading, text, link, key cap, icon, expandable text (with *Show more*), shimmer text, gradient text.
   - *Controls*: button, icon button, checkbox, switch, slider, text field, text area, select (with *Searchable*, a combobox), segmented control, tabs, radio group, search, number field, chip, rating, range slider, date picker, color picker, tag input, one-time code, radio cards (choices are lines like `Team | Up to ten people | users | Popular`), button group (a container for buttons), copy button, hold button.
+  - *Actions*: split button (its state field says which part was clicked: 0 the main part, 1 + i menu item i), toggle group (the items that are on are numbers like `0, 2`; an icon per item with *Icons only*), confirm button (a second click confirms), status button (its state field is a `cui_status` the app sets to busy, success or error).
+  - *Inputs*: inline edit, scrub field, money field, shortcut recorder, multi-select, date range, time picker (two fields, `_hour` and `_minute`), wheel picker.
+  - *Dials*: knob, fader, ruler slider, ratio slider, step slider (with a name for each stop), gradient slider (hue, temperature or opacity), aspect ratio picker, seed field (with a lock).
   - *Navigation*: nav section, nav item, breadcrumb, pagination, stepper.
   - *Data*: table and data grid (the grid builds only its visible rows). Columns are lines like `Size, 90, right` (a title, then a width and an alignment); rows are lines of cells between `|`. With *Data* set to *code*, the generated header declares two functions that give the rows, and the preview keeps showing the sample rows.
-  - *Feedback*: progress, progress ring, badge, alert, spinner, skeleton, empty state, password strength (it rates a text field you pick, live in *Try it*).
-  - *Display*: avatar, list item, meter, metric (with a change and a sparkline), timeline item.
+  - *Feedback*: progress, progress ring, badge, alert, spinner, skeleton, empty state, password strength (it rates a text field you pick, live in *Try it*), banner (its state field says whether it shows), countdown, status spinner, loader, status tag.
+  - *Display*: avatar, list item, meter, metric (with a change and a sparkline), timeline item, counter, radial gauge, readout.
+  - The kinds after *Controls* come from [More components](https://github.com/Urquelle/CUI/blob/feature/vscode-designer/docs/components-more.md): those whose options the designer can set without data from your code.
 - **Panels**: the palette, the outline and the properties sit in columns beside the preview. Drag the lines between them to change widths and heights (a double-click on a column's line gives its default width). Drag a panel by its header (the dots, for the properties) to another place in a column, to a column's edge for a new column there, or to the outer quarter of the preview for a new column on that side. VS Code keeps the layout and the folded groups for every design.
 - **Preview**: the real library compiled to WebAssembly and drawn by its software renderer. *Fit* zooms a large design out to the editor's size; the other zoom levels are fixed. It is not an imitation: what you see is what the generated code draws (see [Checks](#checks)). In **Design** mode you select, drag and move. In **Try it** mode the preview takes the mouse and keyboard like the app, and the status line names the event handler that a click or change would call.
 - **Outline** and **properties**: every option from the component's options struct, edited in place. <kbd>Del</kbd> deletes, <kbd>Alt+↑/↓</kbd> moves, <kbd>Ctrl+D</kbd> duplicates, <kbd>Esc</kbd> selects the parent. *Wrap in row* and *Wrap in column* put a container around the selection.
@@ -35,6 +39,8 @@ and is proposed to the project in [yappologistic/CUI#139](https://github.com/yap
 ![The panels moved: the components alone on the left, the outline above the properties on the right, some palette groups folded](https://raw.githubusercontent.com/Urquelle/CUI/cd36dcf84b860f172bf4d644bf3740fa8ada9c40/editors/vscode/docs/designer-panels.png)
 
 ![A sign-up form with the newer kinds: password strength, a one-time code, tags, a combobox, a color, radio cards, a button group, copy and hold buttons, metrics, a progress ring and a timeline](https://raw.githubusercontent.com/Urquelle/CUI/cd36dcf84b860f172bf4d644bf3740fa8ada9c40/editors/vscode/docs/designer-signup.png)
+
+![Kinds from More components: a banner, a toggle group, confirm and split buttons, a multi-select, a date range, money and time fields, a wheel, knobs and a fader, the creative sliders, a gauge, a counter, a countdown and an expandable card](https://raw.githubusercontent.com/Urquelle/CUI/cd36dcf84b860f172bf4d644bf3740fa8ada9c40/editors/vscode/docs/designer-studio.png)
 
 The images show the webview in a browser (`test/serve.js`), where it looks as it does in VS Code's dark theme.
 
@@ -93,7 +99,7 @@ To install it in your own VS Code, package it after `build.sh` and install the f
 
 ```sh
 cd editors/vscode && npm run package
-code --install-extension cui-visual-designer-0.2.0.vsix
+code --install-extension cui-visual-designer-0.3.0.vsix
 ```
 
 The README links its images at a fixed commit of the fork, because `vsce` gets
@@ -134,7 +140,7 @@ node test/smoke.mjs                # the preview module builds a tree and report
 
 ## Not done yet
 
-- Most of CUI's 210 components: trees, tree tables, charts, popovers, menus, toasts, toolbars, images and the rest.
+- The rest of CUI's components, most of them fed by data from your code: trees, tree tables, charts, kanban boards, calendars, popovers, menus, toasts, toolbars, images, code and log views, the developer tool panels and the rest.
 - Tables show text only: no components in cells, no sortable headers, no editable cells, and no checkbox selection in the data grid.
 - Dynamic text (a label that shows a value from the state), lists built from data, and showing parts of the UI only under a condition.
 - Reading hand-written C back into a design. The generator writes in one direction.

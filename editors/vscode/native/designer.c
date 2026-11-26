@@ -14,7 +14,7 @@ enum { DSG_MAX_NODES = 1024, DSG_MAX_PROPS = 32, DSG_MAX_ITEMS = 32, DSG_MAX_EVE
 
 typedef enum dsg_kind {
     /* containers first: dsg_is_container relies on it */
-    DSG_COLUMN, DSG_ROW, DSG_GRID, DSG_CARD, DSG_SCROLL, DSG_ACCORDION, DSG_SPLIT, DSG_DIALOG, DSG_SHEET, DSG_BUTTON_GROUP, DSG_DIALOG_FOOTER,
+    DSG_COLUMN, DSG_ROW, DSG_GRID, DSG_CARD, DSG_SCROLL, DSG_ACCORDION, DSG_SPLIT, DSG_DIALOG, DSG_SHEET, DSG_BUTTON_GROUP, DSG_EXPANDABLE_CARD, DSG_DIALOG_FOOTER,
     DSG_HEADING, DSG_TEXT, DSG_LINK, DSG_KBD, DSG_ICON, DSG_BUTTON, DSG_ICON_BUTTON,
     DSG_CHECKBOX, DSG_SWITCH, DSG_SLIDER, DSG_INPUT, DSG_TEXTAREA,
     DSG_SELECT, DSG_SEGMENTED, DSG_TABS, DSG_RADIO_GROUP,
@@ -24,13 +24,20 @@ typedef enum dsg_kind {
     DSG_AVATAR, DSG_LIST_ITEM, DSG_METER, DSG_SEPARATOR, DSG_SPACER, DSG_TABLE, DSG_DATA_GRID,
     DSG_COLOR_PICKER, DSG_TAG_INPUT, DSG_OTP, DSG_RADIO_CARDS, DSG_COPY_BUTTON, DSG_HOLD_BUTTON,
     DSG_PASSWORD_STRENGTH, DSG_PROGRESS_RING, DSG_METRIC, DSG_TIMELINE_ITEM,
+    /* from "More components" */
+    DSG_EXPANDABLE_TEXT, DSG_SHIMMER_TEXT, DSG_GRADIENT_TEXT,
+    DSG_SPLIT_BUTTON, DSG_TOGGLE_GROUP, DSG_CONFIRM_BUTTON, DSG_STATUS_BUTTON,
+    DSG_INLINE_EDIT, DSG_SCRUB, DSG_MONEY, DSG_SHORTCUT_RECORDER, DSG_MULTI_SELECT, DSG_DATE_RANGE, DSG_TIME_PICKER, DSG_WHEEL_PICKER,
+    DSG_KNOB, DSG_FADER, DSG_RULER_SLIDER, DSG_RATIO_SLIDER, DSG_STEP_SLIDER, DSG_GRADIENT_SLIDER, DSG_ASPECT_PICKER, DSG_SEED_FIELD,
+    DSG_BANNER, DSG_COUNTDOWN, DSG_STATUS_SPINNER, DSG_LOADER, DSG_STATUS_TAG,
+    DSG_COUNTER, DSG_RADIAL_GAUGE, DSG_READOUT,
     DSG_KIND_COUNT
 } dsg_kind;
 #define dsg_is_container(k) ((k) <= DSG_DIALOG_FOOTER)
 
 /* The names media/components.js uses for the same kinds. */
 static const char *const dsg_kind_names[DSG_KIND_COUNT] = {
-    "column", "row", "grid", "card", "scroll", "accordion", "split", "dialog", "sheet", "button_group", "dialog_footer",
+    "column", "row", "grid", "card", "scroll", "accordion", "split", "dialog", "sheet", "button_group", "expandable_card", "dialog_footer",
     "heading", "text", "link", "kbd", "icon", "button", "icon_button",
     "checkbox", "switch", "slider", "input", "textarea",
     "select", "segmented", "tabs", "radio_group",
@@ -40,6 +47,12 @@ static const char *const dsg_kind_names[DSG_KIND_COUNT] = {
     "avatar", "list_item", "meter", "separator", "spacer", "table", "data_grid",
     "color_picker", "tag_input", "otp", "radio_cards", "copy_button", "hold_button",
     "password_strength", "progress_ring", "metric", "timeline_item",
+    "expandable_text", "shimmer_text", "gradient_text",
+    "split_button", "toggle_group", "confirm_button", "status_button",
+    "inline_edit", "scrub", "money", "shortcut_recorder", "multi_select", "date_range", "time_picker", "wheel_picker",
+    "knob", "fader", "ruler_slider", "ratio_slider", "step_slider", "gradient_slider", "aspect_picker", "seed_field",
+    "banner", "countdown", "status_spinner", "loader", "status_tag",
+    "counter", "radial_gauge", "readout",
 };
 
 typedef struct dsg_prop { char *key, *value; } dsg_prop;
@@ -72,6 +85,17 @@ typedef struct dsg_node {
     int choice_count;
     float spark[DSG_MAX_ITEMS];           /* a metric's sparkline */
     int spark_count;
+    bool flags[DSG_MAX_ITEMS];            /* the items that are on: a toggle group's, a multi-select's */
+    const char *icons[DSG_MAX_ITEMS];     /* "icons" beside the items, NULL where a line names none */
+    bool has_icons;
+    char *labels_text;                    /* a step slider's "labels", split in place */
+    const char *labels[DSG_MAX_ITEMS];
+    int label_count;
+    int hour, minute;
+    cui_date_range range;
+    cui_key_combo combo;
+    uint32_t seed;
+    bool locked;
     int ui_node;                          /* its first node in the latest frame, or -1 */
 } dsg_node;
 
@@ -99,6 +123,7 @@ static void dsg_free_node(dsg_node *n) {
     free(n->rows_text);
     free(n->cells);
     free(n->choices_text);
+    free(n->labels_text);
     memset(n, 0, sizeof *n);
 }
 
@@ -136,19 +161,23 @@ static const char *dsg_get(const dsg_node *n, const char *key) {
     return NULL;
 }
 
-static void dsg_split_items(dsg_node *n, const char *text) {
-    free(n->items_text);
-    n->items_text = strdup(text);
-    n->item_count = 0;
-    char *s = n->items_text;
-    while (*s && n->item_count < DSG_MAX_ITEMS) {
-        n->items[n->item_count++] = s;
+/* The lines of text, in a copy kept in *store and split in place; a last empty
+ * line is dropped. Returns how many, at most DSG_MAX_ITEMS. media/codegen.js lines. */
+static int dsg_split_lines(char **store, const char *text, const char **out) {
+    free(*store);
+    *store = strdup(text);
+    int count = 0;
+    char *s = *store;
+    while (*s && count < DSG_MAX_ITEMS) {
+        out[count++] = s;
         char *nl = strchr(s, '\n');
         if (!nl) break;
         *nl = 0;
         s = nl + 1;
     }
+    return count;
 }
+static void dsg_split_items(dsg_node *n, const char *text) { n->item_count = dsg_split_lines(&n->items_text, text, n->items); }
 
 DSG_EXPORT(dsg_set) void dsg_set(int i, const char *key, const char *value) {
     if (i < 0 || i >= dsg_node_count) return;
@@ -195,11 +224,11 @@ static cui_size dsg_size(const dsg_node *n, const char *key) {
     float x = strtof(v, &end);
     return *end == '%' ? CUI_PCT(x) : CUI_PX(x);
 }
-static const char *dsg_icon_glyph(const dsg_node *n, const char *key) {
-    const char *v = dsg_get(n, key);
-    if (v && *v) for (int k = 0; k < DSG_ICON_COUNT; k++) if (strcmp(dsg_icons[k].name, v) == 0) return dsg_icons[k].glyph;
+static const char *dsg_find_icon(const char *name) {
+    if (name && *name) for (int k = 0; k < DSG_ICON_COUNT; k++) if (strcmp(dsg_icons[k].name, name) == 0) return dsg_icons[k].glyph;
     return NULL;
 }
+static const char *dsg_icon_glyph(const dsg_node *n, const char *key) { return dsg_find_icon(dsg_get(n, key)); }
 
 /* "2026-11-26"; anything else is no date. */
 static cui_date dsg_parse_date(const char *v) {
@@ -321,8 +350,7 @@ static void dsg_parse_choices(dsg_node *n) {
             cui_choice *ch = &n->choices[n->choice_count++];
             ch->title = part[0] ? part[0] : "";
             ch->description = part[1];
-            ch->icon = NULL;
-            if (part[2]) for (int k = 0; k < DSG_ICON_COUNT; k++) if (strcmp(dsg_icons[k].name, part[2]) == 0) ch->icon = dsg_icons[k].glyph;
+            ch->icon = dsg_find_icon(part[2]);
             ch->badge = part[3];
         }
         line = nl ? nl + 1 : NULL;
@@ -360,8 +388,81 @@ static int dsg_otp_length(const dsg_node *n) {
 
 /* The kinds whose state is text, which a password strength meter can rate. */
 static bool dsg_holds_text(dsg_kind k) {
-    return k == DSG_INPUT || k == DSG_TEXTAREA || k == DSG_SEARCH || k == DSG_TAG_INPUT || k == DSG_OTP;
+    return k == DSG_INPUT || k == DSG_TEXTAREA || k == DSG_SEARCH || k == DSG_TAG_INPUT || k == DSG_OTP || k == DSG_INLINE_EDIT;
 }
+
+/* "0, 2": the items that are on; a part that is not a number below the item count is
+ * skipped. As in media/codegen.js parseIndexes. */
+static void dsg_parse_flags(dsg_node *n) {
+    memset(n->flags, 0, sizeof n->flags);
+    for (const char *v = dsg_str(n, "value");;) {
+        const char *comma = strchr(v, ',');
+        size_t len = comma ? (size_t)(comma - v) : strlen(v);
+        const char *t = v;
+        while (len && (*t == ' ' || *t == '\t' || *t == '\r' || *t == '\n')) { t++; len--; }
+        while (len && (t[len - 1] == ' ' || t[len - 1] == '\t' || t[len - 1] == '\r' || t[len - 1] == '\n')) len--;
+        bool digits = len > 0;
+        long x = 0;
+        for (size_t k = 0; k < len && digits; k++) {
+            if (t[k] < '0' || t[k] > '9') digits = false;
+            else if (x < 100000) x = x * 10 + (t[k] - '0');
+        }
+        if (digits && x < n->item_count) n->flags[x] = true;
+        if (!comma) break;
+        v = comma + 1;
+    }
+}
+
+/* "icons": one name per line beside the items, as in media/codegen.js iconsOpt. */
+static void dsg_parse_icons(dsg_node *n) {
+    memset(n->icons, 0, sizeof n->icons);
+    n->has_icons = false;
+    const char *v = dsg_str(n, "icons");
+    for (int k = 0; k < n->item_count; k++) {
+        const char *nl = strchr(v, '\n');
+        size_t len = nl ? (size_t)(nl - v) : strlen(v);
+        char name[64];
+        if (len < sizeof name) {
+            memcpy(name, v, len);
+            name[len] = 0;
+            n->icons[k] = dsg_find_icon(dsg_trim(name));
+            if (n->icons[k]) n->has_icons = true;
+        }
+        if (!nl) break;
+        v = nl + 1;
+    }
+}
+
+/* "09:30": one or two digits, a colon, one or two digits; anything else is 0:00.
+ * As in media/codegen.js parseTime. */
+static void dsg_parse_time(const char *v, int *hour, int *minute) {
+    *hour = *minute = 0;
+    if (!v) return;
+    while (*v == ' ' || *v == '\t') v++;
+    int part[2] = { 0, 0 };
+    for (int k = 0; k < 2; k++) {
+        int digits = 0;
+        while (*v >= '0' && *v <= '9' && digits < 3) { part[k] = part[k] * 10 + (*v++ - '0'); digits++; }
+        if (digits < 1 || digits > 2) return;
+        if (k == 0 && *v++ != ':') return;
+    }
+    while (*v == ' ' || *v == '\t') v++;
+    if (*v || part[0] > 23 || part[1] > 59) return;
+    *hour = part[0];
+    *minute = part[1];
+}
+
+/* A seed: a whole number 0..4294967295, else 0, as in media/codegen.js seedOf. */
+static uint32_t dsg_parse_seed(const char *v) {
+    if (!v || !*v) return 0;
+    char *end;
+    double d = strtod(v, &end);
+    while (*end == ' ' || *end == '\t') end++;
+    if (*end || !(d >= 0 && d < 4294967296.0)) return 0;
+    return (uint32_t)d;
+}
+
+static const char *const dsg_work_names[] = { "idle", "busy", "success", "error" };
 
 /* Sets the live values from the document, after it was sent in. */
 DSG_EXPORT(dsg_commit) void dsg_commit(void) {
@@ -384,6 +485,16 @@ DSG_EXPORT(dsg_commit) void dsg_commit(void) {
         n->color = dsg_parse_hex(v);
         if (n->kind == DSG_RADIO_CARDS) dsg_parse_choices(n);
         if (n->kind == DSG_METRIC) dsg_parse_spark(n);
+        if (n->kind == DSG_TOGGLE_GROUP || n->kind == DSG_MULTI_SELECT) dsg_parse_flags(n);
+        if (n->kind == DSG_TOGGLE_GROUP || n->kind == DSG_MULTI_SELECT || n->kind == DSG_SPLIT_BUTTON) dsg_parse_icons(n);
+        if (n->kind == DSG_STEP_SLIDER) n->label_count = dsg_split_lines(&n->labels_text, dsg_str(n, "labels"), n->labels);
+        if (n->kind == DSG_STATUS_BUTTON || n->kind == DSG_STATUS_SPINNER) n->index = dsg_enum(n, "value", dsg_work_names, 4);
+        dsg_parse_time(v, &n->hour, &n->minute);
+        n->range.start = dsg_parse_date(dsg_get(n, "start"));
+        n->range.end = dsg_parse_date(dsg_get(n, "end"));
+        memset(&n->combo, 0, sizeof n->combo);
+        n->seed = dsg_parse_seed(v);
+        n->locked = dsg_flag(n, "locked");
     }
 }
 
@@ -402,6 +513,9 @@ static const char *const dsg_spinner_names[] = { "arc", "comet", "dot_matrix", "
 static const cui_spinner_style dsg_spinner_styles[] = { CUI_SPINNER_ARC, CUI_SPINNER_COMET, CUI_SPINNER_DOT_MATRIX, CUI_SPINNER_RADAR,
                                                         CUI_SPINNER_RIPPLE, CUI_SPINNER_ORBIT, CUI_SPINNER_BOUNCE, CUI_SPINNER_PULSE };
 static const char *const dsg_status_names[] = { "", "online", "busy", "away", "offline" };
+static const char *const dsg_tag_status_names[] = { "pending", "in_progress", "submitted", "in_review", "success", "failed", "expired", "custom" };
+static const char *const dsg_loader_names[] = { "dots", "bars", "pulse", "orbit", "grid" };
+static const char *const dsg_track_names[] = { "hue", "temperature", "opacity" };
 #define DSG_ENUM(n, key, names) dsg_enum((n), (key), (names), (int)(sizeof(names) / sizeof(names[0])))
 
 /* A theme color by its name in media/components.js; zero (the component's default) for none. */
@@ -516,6 +630,21 @@ static void dsg_build_container(cui_ctx *ui, dsg_node *n) {
         cui_button_group_end(ui);
         return;
     }
+    if (n->kind == DSG_EXPANDABLE_CARD) {
+        cui_expandable_card_opts o = { 0 };
+        o.description = dsg_opt(n, "description");
+        o.icon = dsg_icon_glyph(n, "icon");
+        o.badge = dsg_opt(n, "badge");
+        o.badge_tone = (cui_tone)DSG_ENUM(n, "badge_tone", dsg_tone_names);
+        bool was = n->on;
+        if (cui_expandable_card_begin(ui, dsg_str(n, "title"), &n->on, &o)) {
+            dsg_drop_room(ui, n);
+            dsg_build_children(ui, n);
+            cui_expandable_card_end(ui);
+        }
+        if (n->on != was) dsg_event((int)(n - dsg_nodes));
+        return;
+    }
     if (n->kind == DSG_SCROLL) {
         cui_scroll_opts o = { 0 };
         o.width = dsg_size(n, "width");
@@ -581,6 +710,296 @@ static void dsg_build_container(cui_ctx *ui, dsg_node *n) {
     cui_box_end(ui);
 }
 
+/* The kinds from "More components" (docs/components-more.md). */
+static void dsg_build_more(cui_ctx *ui, int i) {
+    dsg_node *n = &dsg_nodes[i];
+    switch (n->kind) {
+    case DSG_EXPANDABLE_TEXT: {
+        cui_expandable_text_opts o = { 0 };
+        o.lines = (int)dsg_num(n, "lines", 0);
+        cui_expandable_text_ex(ui, dsg_id(n), dsg_str(n, "text"), &o);
+        break;
+    }
+    case DSG_SHIMMER_TEXT: {
+        cui_text_fx_opts o = { 0 };
+        o.size = dsg_num(n, "size", 0);
+        o.nowrap = dsg_flag(n, "nowrap");
+        cui_shimmer_text_ex(ui, dsg_str(n, "text"), &o);
+        break;
+    }
+    case DSG_GRADIENT_TEXT: {
+        cui_gradient_text_opts o = { 0 };
+        o.size = dsg_num(n, "size", 0);
+        o.animate = dsg_flag(n, "animate");
+        cui_gradient_text_ex(ui, dsg_str(n, "text"), &o);
+        break;
+    }
+    case DSG_SPLIT_BUTTON: {   /* 0 for the main part, 1 + i for menu item i */
+        cui_split_button_opts o = { 0 };
+        o.variant = (cui_button_variant)DSG_ENUM(n, "variant", dsg_variant_names);
+        o.size = (cui_control_size)DSG_ENUM(n, "size", dsg_control_size_names);
+        o.icon = dsg_icon_glyph(n, "icon");
+        o.item_icons = n->has_icons ? n->icons : NULL;
+        o.disabled = dsg_flag(n, "disabled");
+        int r = cui_split_button_ex(ui, dsg_str(n, "label"), n->items, n->item_count, &o);
+        if (r >= 0) { n->index = r; dsg_clicked(i); }
+        break;
+    }
+    case DSG_TOGGLE_GROUP: {
+        cui_toggle_group_opts o = { 0 };
+        o.icons = n->has_icons ? n->icons : NULL;
+        o.exclusive = dsg_flag(n, "exclusive");
+        o.icon_only = dsg_flag(n, "icon_only");
+        o.size = (cui_control_size)DSG_ENUM(n, "size", dsg_control_size_names);
+        if (cui_toggle_group_ex(ui, dsg_id(n), n->items, n->item_count, n->flags, &o)) dsg_event(i);
+        break;
+    }
+    case DSG_CONFIRM_BUTTON: {
+        cui_confirm_opts o = { 0 };
+        o.confirm_label = dsg_opt(n, "confirm_label");
+        o.icon = dsg_icon_glyph(n, "icon");
+        o.variant = (cui_button_variant)DSG_ENUM(n, "variant", dsg_variant_names);
+        o.size = (cui_control_size)DSG_ENUM(n, "size", dsg_control_size_names);
+        o.timeout = dsg_num(n, "timeout", 0);
+        if (cui_confirm_button_ex(ui, dsg_str(n, "label"), &o)) dsg_clicked(i);
+        break;
+    }
+    case DSG_STATUS_BUTTON: {
+        cui_status_button_opts o = { 0 };
+        o.busy_label = dsg_opt(n, "busy_label");
+        o.success_label = dsg_opt(n, "success_label");
+        o.error_label = dsg_opt(n, "error_label");
+        o.icon = dsg_icon_glyph(n, "icon");
+        o.variant = (cui_button_variant)DSG_ENUM(n, "variant", dsg_variant_names);
+        o.size = (cui_control_size)DSG_ENUM(n, "size", dsg_control_size_names);
+        if (cui_status_button_ex(ui, dsg_str(n, "label"), (cui_status)n->index, &o)) dsg_clicked(i);
+        break;
+    }
+    case DSG_INLINE_EDIT: {
+        cui_inline_edit_opts o = { 0 };
+        o.size = dsg_num(n, "size", 0);
+        o.placeholder = dsg_opt(n, "placeholder");
+        o.width = dsg_size(n, "width");
+        if (cui_inline_edit_ex(ui, dsg_id(n), n->text, sizeof n->text, &o) & CUI_CHANGED) dsg_event(i);
+        break;
+    }
+    case DSG_SCRUB: {
+        cui_scrub_opts o = { 0 };
+        o.step = dsg_num(n, "step", 0);
+        o.format = dsg_opt(n, "format");
+        o.suffix = dsg_opt(n, "suffix");
+        o.icon = dsg_icon_glyph(n, "icon");
+        o.width = dsg_size(n, "width");
+        if (cui_scrub_ex(ui, dsg_str(n, "label"), &n->value, dsg_num(n, "min", 0), dsg_num(n, "max", 100), &o)) dsg_event(i);
+        break;
+    }
+    case DSG_MONEY: {
+        cui_money_opts o = { 0 };
+        o.label = dsg_opt(n, "label");
+        o.symbol = dsg_opt(n, "symbol");
+        o.code = dsg_opt(n, "code");
+        o.decimals = (int)dsg_num(n, "decimals", 0);
+        o.width = dsg_size(n, "width");
+        o.hint = dsg_opt(n, "hint");
+        if (cui_money_input_ex(ui, dsg_id(n), &n->number, &o)) dsg_event(i);
+        break;
+    }
+    case DSG_SHORTCUT_RECORDER: {
+        cui_shortcut_recorder_opts o = { 0 };
+        o.placeholder = dsg_opt(n, "placeholder");
+        o.width = dsg_size(n, "width");
+        if (cui_shortcut_recorder_ex(ui, dsg_id(n), &n->combo, &o)) dsg_event(i);
+        break;
+    }
+    case DSG_MULTI_SELECT: {
+        cui_multi_select_opts o = { 0 };
+        o.label = dsg_opt(n, "label");
+        o.placeholder = dsg_opt(n, "placeholder");
+        o.icons = n->has_icons ? n->icons : NULL;
+        o.searchable = dsg_flag(n, "searchable");
+        o.max_chips = (int)dsg_num(n, "max_chips", 0);
+        o.width = dsg_size(n, "width");
+        if (cui_multi_select_ex(ui, dsg_id(n), n->items, n->item_count, n->flags, &o)) dsg_event(i);
+        break;
+    }
+    case DSG_DATE_RANGE: {
+        cui_date_range_opts o = { 0 };
+        o.label = dsg_opt(n, "label");
+        o.placeholder = dsg_opt(n, "placeholder");
+        o.width = dsg_size(n, "width");
+        o.no_presets = dsg_flag(n, "no_presets");
+        if (cui_date_range_picker_ex(ui, dsg_id(n), &n->range, &o)) dsg_event(i);
+        break;
+    }
+    case DSG_TIME_PICKER: {
+        cui_time_opts o = { 0 };
+        o.label = dsg_opt(n, "label");
+        o.twelve_hour = dsg_flag(n, "twelve_hour");
+        o.minute_step = (int)dsg_num(n, "minute_step", 0);
+        o.width = dsg_size(n, "width");
+        if (cui_time_picker_ex(ui, dsg_id(n), &n->hour, &n->minute, &o)) dsg_event(i);
+        break;
+    }
+    case DSG_WHEEL_PICKER: {
+        cui_wheel_opts o = { 0 };
+        o.rows = (int)dsg_num(n, "rows", 0);
+        o.width = dsg_size(n, "width");
+        o.loop = dsg_flag(n, "loop");
+        if (cui_wheel_picker_ex(ui, dsg_id(n), n->items, n->item_count, &n->index, &o)) dsg_event(i);
+        break;
+    }
+    case DSG_KNOB: {
+        cui_knob_opts o = { 0 };
+        o.label = dsg_opt(n, "label");
+        o.format = dsg_opt(n, "format");
+        o.unit = dsg_opt(n, "unit");
+        o.size = dsg_num(n, "size", 0);
+        o.step = dsg_num(n, "step", 0);
+        o.bipolar = dsg_flag(n, "bipolar");
+        o.hide_value = dsg_flag(n, "hide_value");
+        o.disabled = dsg_flag(n, "disabled");
+        if (cui_knob_ex(ui, dsg_id(n), &n->value, dsg_num(n, "min", 0), dsg_num(n, "max", 100), &o)) dsg_event(i);
+        break;
+    }
+    case DSG_FADER: {
+        cui_fader_opts o = { 0 };
+        o.label = dsg_opt(n, "label");
+        o.format = dsg_opt(n, "format");
+        o.unit = dsg_opt(n, "unit");
+        o.length = dsg_num(n, "length", 0);
+        o.horizontal = dsg_flag(n, "horizontal");
+        o.step = dsg_num(n, "step", 0);
+        o.hide_value = dsg_flag(n, "hide_value");
+        o.disabled = dsg_flag(n, "disabled");
+        if (cui_fader_ex(ui, dsg_id(n), &n->value, dsg_num(n, "min", 0), dsg_num(n, "max", 100), &o)) dsg_event(i);
+        break;
+    }
+    case DSG_RULER_SLIDER: {
+        cui_ruler_opts o = { 0 };
+        o.step = dsg_num(n, "step", 0);
+        o.major_every = (int)dsg_num(n, "major_every", 0);
+        o.format = dsg_opt(n, "format");
+        o.unit = dsg_opt(n, "unit");
+        o.width = dsg_size(n, "width");
+        if (cui_ruler_slider_ex(ui, dsg_str(n, "label"), &n->value, dsg_num(n, "min", 0), dsg_num(n, "max", 100), &o)) dsg_event(i);
+        break;
+    }
+    case DSG_RATIO_SLIDER: {
+        cui_ratio_slider_opts o = { 0 };
+        o.tone = (cui_tone)DSG_ENUM(n, "tone", dsg_tone_names);
+        o.height = dsg_num(n, "height", 0);
+        o.width = dsg_size(n, "width");
+        o.disabled = dsg_flag(n, "disabled");
+        if (cui_ratio_slider_ex(ui, dsg_str(n, "first"), dsg_str(n, "second"), &n->value, &o)) dsg_event(i);
+        break;
+    }
+    case DSG_STEP_SLIDER: {   /* the stop names only with one for every stop: it shows labels[value - min] */
+        cui_step_slider_opts o = { 0 };
+        int lo = (int)dsg_num(n, "min", 0), hi = (int)dsg_num(n, "max", 0);
+        if (hi >= lo && n->label_count >= hi - lo + 1) o.labels = n->labels;
+        o.format = dsg_opt(n, "format");
+        o.disabled = dsg_flag(n, "disabled");
+        if (cui_step_slider_ex(ui, dsg_str(n, "label"), &n->index, lo, hi, &o) & CUI_WELL_CHANGED) dsg_event(i);
+        break;
+    }
+    case DSG_GRADIENT_SLIDER: {
+        cui_gradient_slider_opts o = { 0 };
+        o.track = (cui_gradient_track)DSG_ENUM(n, "track", dsg_track_names);
+        o.step = dsg_num(n, "step", 0);
+        o.format = dsg_opt(n, "format");
+        o.swatch = dsg_flag(n, "swatch");
+        o.disabled = dsg_flag(n, "disabled");
+        if (cui_gradient_slider_ex(ui, dsg_str(n, "label"), &n->value, dsg_num(n, "min", 0), dsg_num(n, "max", 100), &o) & CUI_WELL_CHANGED) dsg_event(i);
+        break;
+    }
+    case DSG_ASPECT_PICKER: {
+        cui_aspect_picker_opts o = { 0 };
+        o.custom = dsg_flag(n, "custom");
+        o.base = (int)dsg_num(n, "base", 0);
+        if (cui_aspect_picker_ex(ui, dsg_str(n, "label"), &n->index, &o)) dsg_event(i);
+        break;
+    }
+    case DSG_SEED_FIELD: {
+        cui_seed_field_opts o = { 0 };
+        o.value = dsg_opt(n, "caption");
+        if (cui_seed_field_ex(ui, dsg_str(n, "label"), &n->seed, &n->locked, &o) & CUI_WELL_CHANGED) dsg_event(i);
+        break;
+    }
+    case DSG_BANNER: {   /* in design mode it shows even when its state says hidden, so it can be selected */
+        cui_banner_opts o = { 0 };
+        o.tone = (cui_tone)DSG_ENUM(n, "tone", dsg_tone_names);
+        o.icon = dsg_icon_glyph(n, "icon");
+        o.action = dsg_opt(n, "action");
+        o.dismissible = dsg_flag(n, "dismissible");
+        bool forced = true;
+        if (cui_banner_ex(ui, dsg_str(n, "text"), dsg_design_mode ? &forced : &n->on, &o)) dsg_clicked(i);
+        break;
+    }
+    case DSG_COUNTDOWN: {
+        cui_countdown_opts o = { 0 };
+        o.hide_days = dsg_flag(n, "hide_days");
+        o.compact = dsg_flag(n, "compact");
+        const char *v = dsg_get(n, "seconds");
+        cui_countdown_ex(ui, dsg_id(n), v && *v ? strtod(v, NULL) : 0, &o);
+        break;
+    }
+    case DSG_STATUS_SPINNER: {
+        cui_status_spinner_opts o = { 0 };
+        o.size = dsg_num(n, "size", 0);
+        o.keep = dsg_flag(n, "keep");
+        cui_status_spinner_ex(ui, dsg_id(n), (cui_status)n->index, &o);
+        break;
+    }
+    case DSG_LOADER: {
+        cui_loader_opts o = { 0 };
+        o.style = (cui_loader_style)DSG_ENUM(n, "style", dsg_loader_names);
+        o.size = dsg_num(n, "size", 0);
+        o.color = dsg_color(n, "color");
+        cui_loader_ex(ui, &o);
+        break;
+    }
+    case DSG_STATUS_TAG: {
+        cui_status_tag_opts o = { 0 };
+        o.size = (cui_control_size)DSG_ENUM(n, "size", dsg_control_size_names);
+        o.removable = dsg_flag(n, "removable");
+        o.icon = dsg_icon_glyph(n, "icon");
+        o.tone = (cui_tone)DSG_ENUM(n, "tone", dsg_tone_names);
+        if (cui_status_tag_ex(ui, dsg_opt(n, "label"), (cui_tag_status)DSG_ENUM(n, "status", dsg_tag_status_names), &o)) dsg_clicked(i);
+        break;
+    }
+    case DSG_COUNTER: {
+        cui_counter_opts o = { 0 };
+        o.format = dsg_opt(n, "format");
+        o.size = dsg_num(n, "size", 0);
+        o.group_thousands = dsg_flag(n, "group_thousands");
+        cui_counter_ex(ui, dsg_id(n), n->number, &o);
+        break;
+    }
+    case DSG_RADIAL_GAUGE: {
+        cui_radial_gauge_opts o = { 0 };
+        o.label = dsg_opt(n, "label");
+        o.unit = dsg_opt(n, "unit");
+        o.format = dsg_opt(n, "format");
+        o.detail = dsg_opt(n, "detail");
+        o.size = dsg_num(n, "size", 0);
+        o.sweep = dsg_num(n, "sweep", 0);
+        cui_radial_gauge_ex(ui, dsg_id(n), dsg_num(n, "value", 0), dsg_num(n, "min", 0), dsg_num(n, "max", 100), &o);
+        break;
+    }
+    case DSG_READOUT: {
+        cui_readout_opts o = { 0 };
+        o.unit = dsg_opt(n, "unit");
+        o.detail = dsg_opt(n, "detail");
+        o.size = (cui_control_size)DSG_ENUM(n, "size", dsg_control_size_names);
+        o.tone = (cui_tone)DSG_ENUM(n, "tone", dsg_tone_names);
+        o.accent = dsg_flag(n, "accent");
+        o.width = dsg_size(n, "width");
+        cui_readout_ex(ui, dsg_str(n, "label"), dsg_str(n, "value"), &o);
+        break;
+    }
+    default: break;
+    }
+}
 
 static void dsg_build_control(cui_ctx *ui, int i) {
     dsg_node *n = &dsg_nodes[i];
@@ -891,7 +1310,7 @@ static void dsg_build_control(cui_ctx *ui, int i) {
         cui_timeline_item_ex(ui, dsg_str(n, "title"), &o);
         break;
     }
-    default: break;
+    default: dsg_build_more(ui, i); break;
     }
 }
 

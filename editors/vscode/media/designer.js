@@ -592,7 +592,9 @@ function renderPanel() {
   if (spec) for (const prop of spec.props) panel.append(field(prop, n));
   if (spec && spec.state) {
     const f = names.get(n.id);
-    panel.append(el('p', { class: 'note' }, spec.state === 'range' ? `Its values live in s->${f}_low and s->${f}_high.` : `Its value lives in s->${f}.`));
+    const parts = (spec.state === 'range' ? ['_low', '_high'] : spec.values || ['']).map((x) => `s->${f}${x}`);
+    const where = parts.length > 1 ? `Its values live in ${parts.join(' and ')}.` : `Its value lives in ${parts[0]}.`;
+    panel.append(el('p', { class: 'note' }, spec.stateNote ? `${where} ${spec.stateNote}` : where));
   }
   if (n === doc.root) {
     panel.append(el('h3', {}, 'Design'));

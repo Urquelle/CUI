@@ -1,0 +1,69 @@
+{
+  "cui_designer": 1,
+  "name": "studio",
+  "preview": { "width": 1180, "height": 800, "theme": "light", "accent": "violet" },
+  "root": { "id": "n1", "type": "column", "props": { "pad": 24, "gap": 16, "width": "fill", "height": "fill" }, "children": [
+    { "id": "n2", "type": "banner", "props": { "text": "Studio 2.4 is out: faster renders and a new color panel.", "value": true, "tone": "info", "icon": "sparkles", "action": "What's new", "dismissible": true, "bind": "news", "on_click": "studio_show_news" } },
+    { "id": "n3", "type": "row", "props": { "gap": 12, "align": "center", "width": "fill" }, "children": [
+      { "id": "n4", "type": "gradient_text", "props": { "text": "Render studio", "size": 26 } },
+      { "id": "n5", "type": "spacer", "props": {} },
+      { "id": "n6", "type": "status_tag", "props": { "status": "in_progress", "label": "Rendering" } },
+      { "id": "n7", "type": "toggle_group", "props": { "items": "Bold\nItalic\nUnderline", "icons": "bold\nitalic\nunderline", "value": "0", "icon_only": true, "bind": "style" } },
+      { "id": "n8", "type": "confirm_button", "props": { "label": "Discard", "icon": "trash_2", "on_click": "studio_discard" } },
+      { "id": "n9", "type": "split_button", "props": { "label": "Export", "items": "Export PNG\nExport PDF\nCopy link", "icons": "image\nfile_text\nlink", "icon": "download", "bind": "export_choice", "on_click": "studio_export" } }
+    ] },
+    { "id": "n10", "type": "row", "props": { "gap": 24, "width": "fill", "align": "start" }, "children": [
+      { "id": "n11", "type": "column", "props": { "gap": 12, "width": "fill" }, "children": [
+        { "id": "n12", "type": "inline_edit", "props": { "value": "Spring campaign", "placeholder": "Name", "size": 18, "bind": "title" } },
+        { "id": "n13", "type": "multi_select", "props": { "label": "Channels", "items": "Web\nPrint\nSocial\nVideo", "value": "0, 2", "width": "fill", "bind": "channels" } },
+        { "id": "n14", "type": "date_range", "props": { "label": "Runs", "start": "2026-11-02", "end": "2026-11-26", "width": "fill", "bind": "runs" } },
+        { "id": "n15", "type": "row", "props": { "gap": 12, "width": "fill", "align": "end" }, "children": [
+          { "id": "n16", "type": "money", "props": { "label": "Budget", "value": 12500, "symbol": "€", "decimals": 2, "width": "fill", "bind": "budget" } },
+          { "id": "n17", "type": "time_picker", "props": { "label": "Goes live", "value": "09:30", "width": "120", "bind": "live" } }
+        ] },
+        { "id": "n18", "type": "row", "props": { "gap": 12, "align": "center" }, "children": [
+          { "id": "n19", "type": "scrub", "props": { "label": "Opacity", "min": 0, "max": 100, "value": 80, "suffix": "%", "width": "150", "bind": "opacity" } },
+          { "id": "n20", "type": "shortcut_recorder", "props": { "placeholder": "Shortcut", "width": "150", "bind": "shortcut" } }
+        ] },
+        { "id": "n21", "type": "row", "props": { "gap": 16, "align": "center" }, "children": [
+          { "id": "n22", "type": "wheel_picker", "props": { "items": "January\nFebruary\nMarch\nApril\nMay\nJune", "value": 2, "width": "140", "bind": "month" } },
+          { "id": "n23", "type": "status_button", "props": { "label": "Publish", "value": "idle", "icon": "rocket", "bind": "publishing", "on_click": "studio_publish" } }
+        ] },
+        { "id": "n33", "type": "aspect_picker", "props": { "label": "Aspect ratio", "value": 3, "bind": "aspect" } }
+      ] },
+      { "id": "n24", "type": "column", "props": { "gap": 12, "width": "fill" }, "children": [
+        { "id": "n25", "type": "row", "props": { "gap": 20, "align": "end" }, "children": [
+          { "id": "n26", "type": "knob", "props": { "label": "Cutoff", "min": 0, "max": 100, "value": 64, "unit": "%", "bind": "cutoff" } },
+          { "id": "n27", "type": "knob", "props": { "label": "Pan", "min": -1, "max": 1, "value": 0.25, "format": "%+.2f", "bipolar": true, "bind": "pan" } },
+          { "id": "n28", "type": "fader", "props": { "label": "Vocals", "min": -60, "max": 6, "value": -6, "unit": "dB", "length": 110, "bind": "vocals" } }
+        ] },
+        { "id": "n29", "type": "ruler_slider", "props": { "label": "Focal length", "min": 10, "max": 200, "value": 50, "step": 1, "unit": "mm", "width": "fill", "bind": "focal" } },
+        { "id": "n30", "type": "ratio_slider", "props": { "first": "TEXT", "second": "IMAGE", "value": 0.35, "tone": "violet", "width": "fill", "bind": "balance" } },
+        { "id": "n31", "type": "step_slider", "props": { "label": "Quality", "min": 1, "max": 3, "value": 2, "labels": "Draft\nGood\nBest", "bind": "quality" } },
+        { "id": "n32", "type": "gradient_slider", "props": { "label": "Hue", "min": 0, "max": 360, "value": 260, "swatch": true, "bind": "hue" } },
+        { "id": "n34", "type": "seed_field", "props": { "label": "Seed", "value": 421337, "locked": true, "caption": "Same image every run", "bind": "seed" } }
+      ] },
+      { "id": "n35", "type": "column", "props": { "gap": 14, "width": "300" }, "children": [
+        { "id": "n36", "type": "row", "props": { "gap": 16, "align": "center" }, "children": [
+          { "id": "n37", "type": "radial_gauge", "props": { "value": 72, "min": 0, "max": 100, "label": "GPU", "unit": "%", "size": 140 } },
+          { "id": "n38", "type": "column", "props": { "gap": 6 }, "children": [
+            { "id": "n39", "type": "text", "props": { "text": "Frames", "style": "muted" } },
+            { "id": "n40", "type": "counter", "props": { "value": 48210, "group_thousands": true, "size": 28 } },
+            { "id": "n41", "type": "readout", "props": { "label": "Per frame", "value": "182", "unit": "ms", "size": "sm" } }
+          ] }
+        ] },
+        { "id": "n42", "type": "countdown", "props": { "seconds": 200000, "compact": true } },
+        { "id": "n43", "type": "row", "props": { "gap": 12, "align": "center" }, "children": [
+          { "id": "n44", "type": "status_spinner", "props": { "value": "busy", "bind": "upload" } },
+          { "id": "n45", "type": "shimmer_text", "props": { "text": "Uploading frames…" } },
+          { "id": "n46", "type": "loader", "props": { "style": "bars", "size": 18 } }
+        ] },
+        { "id": "n47", "type": "expandable_text", "props": { "text": "Renders run on the shared farm. A job waits for a free node, then streams its frames back here as they finish, so you can stop it early when the first ones look wrong.", "lines": 2 } },
+        { "id": "n48", "type": "expandable_card", "props": { "title": "Advanced", "value": true, "description": "Options most people leave alone", "icon": "settings", "bind": "advanced" }, "children": [
+          { "id": "n49", "type": "switch", "props": { "label": "Motion blur", "value": true } },
+          { "id": "n50", "type": "status_tag", "props": { "status": "success", "label": "Cache warm", "size": "sm" } }
+        ] }
+      ] }
+    ] }
+  ] }
+}

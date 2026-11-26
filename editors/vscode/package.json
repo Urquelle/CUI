@@ -2,7 +2,7 @@
   "name": "cui-visual-designer",
   "displayName": "CUI Visual Designer",
   "description": "Unofficial preview: put CUI interfaces together with the mouse and generate the C code that builds them.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "urquelle",
   "license": "MIT",
   "icon": "icon.png",

@@ -103,6 +103,25 @@
   // A one-time code field's box count and its first text: native/designer.c dsg_otp_length and dsg_commit
   const otpLength = (v) => { const n = Math.trunc(Number(v ?? 6)); return Number.isFinite(n) ? Math.min(12, Math.max(1, n)) : 6; };
   const otpInit = (v, len) => [...String(v ?? '')].filter((ch) => ch >= ' ' && ch < '\x7f').slice(0, len).join('');
+  // "0, 2": the items that are on, below count and each once: native/designer.c dsg_parse_flags
+  function parseIndexes(text, count) {
+    const on = new Set();
+    for (const t of String(text ?? '').split(',').map((x) => x.trim())) if (/^\d+$/.test(t) && +t < Math.min(count, 32)) on.add(+t);
+    return [...on].sort((a, b) => a - b);
+  }
+  // "09:30" as hour and minute, or null: native/designer.c dsg_parse_time
+  function parseTime(v) {
+    const m = /^(\d{1,2}):(\d{1,2})$/.exec(String(v ?? '').trim());
+    return m && +m[1] < 24 && +m[2] < 60 ? [+m[1], +m[2]] : null;
+  }
+  // a seed as a whole number 0..4294967295, else 0: native/designer.c dsg_commit
+  const seedOf = (v) => { const x = Math.trunc(Number(v)); return Number.isFinite(x) && x >= 0 && x <= 4294967295 ? x : 0; };
+  // lines as native/designer.c dsg_split_lines keeps them: a last empty line is dropped, at most 32
+  function lines(text) {
+    const l = String(text ?? '').split('\n');
+    if (l[l.length - 1] === '') l.pop();
+    return l.slice(0, 32);
+  }
   function colorExpr(spec, key, value) {   // a theme color property as an expression, or null for none
     const prop = spec.props.find((x) => x.key === key);
     const i = prop.options.findIndex((o) => o[0] === value);
@@ -217,6 +236,17 @@
         arrays.push(`static const char *const ${arr}[] = { ${list.map(str).join(', ')} };`);
         return `${arr}, ${list.length}`;
       };
+      // ", .<c> = <array>" for the "icons" lines beside `count` items, or "" when none has one
+      const iconsOpt = (count, c) => {
+        const names = String(p.icons || '').split('\n').map((t) => t.trim()).slice(0, Math.min(count, 32));
+        if (!names.some(Boolean)) return '';
+        usesIcons = true;
+        const arr = `${prefix}_${field || n.id}_icons`;
+        arrays.push(`static const char *const ${arr}[] = { ${Array.from({ length: count }, (_, k) => (names[k] ? iconMacro(names[k]) : 'NULL')).join(', ')} };`);
+        return `, .${c} = ${arr}`;
+      };
+      const whole = (v, fallback = 0) => num(Math.trunc(Number(v ?? fallback)));
+      const initNumber = (lit) => { if (Number(p.value)) inits.push(`    s->${field} = ${lit(p.value)};`); };
 
       if (n.type === 'split') {   // the first child is the first pane, the others the second
         fields.push(`    float ${field};`);
@@ -227,10 +257,10 @@
       }
       if (spec.container) {
         let head;
-        if (n.type === 'accordion' || spec.modal) {
+        if (spec.state === 'bool') {   // accordion, dialog, sheet, expandable card: open while the field is true
           fields.push(`    bool ${field};`);
           if (p.value === true) inits.push(`    s->${field} = true;`);
-          head = `cui_${n.type}(ui, ${str(p.title || '')}, &${ref}${spec.modal ? o : ''})`;
+          head = `cui_${n.type}(ui, ${str(p.title || '')}, &${ref}${o})`;
         } else if (n.type === 'dialog_footer') head = 'cui_dialog_footer(ui)';
         else if (n.type === 'grid') head = `cui_box(ui, .dir = CUI_GRID${o})`;
         else head = `cui_${n.type}(ui${o})`;
@@ -408,6 +438,113 @@
           return `${pad}cui_metric(ui, ${str(p.label || '')}, ${str(p.value ?? '')}${o}${spark});\n`;
         }
         case 'timeline_item': return `${pad}cui_timeline_item(ui, ${str(p.title || '')}${o});\n`;
+
+        // ---- from "More components"
+        case 'expandable_text': return `${pad}cui_expandable_text(ui, ${str(field)}, ${str(p.text || '')}${o});\n`;
+        case 'shimmer_text': return `${pad}cui_shimmer_text(ui, ${str(p.text || '')}${o});\n`;
+        case 'gradient_text': return `${pad}cui_gradient_text(ui, ${str(p.text || '')}${o});\n`;
+        case 'split_button': {   // r: 0 for the main part, 1 + i for menu item i, -1 for nothing
+          fields.push(`    int ${field};${' '.repeat(Math.max(1, 20 - field.length))}/* 0: the main part, 1 + i: menu item i */`);
+          const call = `cui_split_button(ui, ${str(p.label || '')}, ${itemsArg()}${o}${iconsOpt(items(p).length, 'item_icons')})`;
+          return `${pad}{\n${pad}    int r = ${call};\n` + indent(wrap('r', 'on_click', (c) => `${c} >= 0`, [`s->${field} = r;`]), 1) + `${pad}}\n`;
+        }
+        case 'toggle_group':
+        case 'multi_select': {
+          const count = items(p).length;
+          fields.push(`    bool ${field}[${Math.max(count, 1)}];`);
+          for (const k of parseIndexes(p.value, count)) inits.push(`    s->${field}[${k}] = true;`);
+          return wrap(`cui_${n.type}(ui, ${str(field)}, ${itemsArg()}, ${ref}${o}${iconsOpt(count, 'icons')})`, 'on_change');
+        }
+        case 'confirm_button': return wrap(`cui_confirm_button(ui, ${str(p.label || '')}${o})`, 'on_click');
+        case 'status_button':
+        case 'status_spinner': {
+          fields.push(`    cui_status ${field};`);
+          const st = spec.props.find((x) => x.key === 'value').options.find((x) => x[0] === p.value);
+          if (st && st[1] !== 'CUI_STATUS_IDLE') inits.push(`    s->${field} = ${st[1]};`);
+          if (n.type === 'status_spinner') return `${pad}cui_status_spinner(ui, ${str(field)}, ${ref}${o});\n`;
+          return wrap(`cui_status_button(ui, ${str(p.label || '')}, ${ref}${o})`, 'on_click');
+        }
+        case 'inline_edit':
+          fields.push(`    char ${field}[${TEXT_CAP}];`);
+          if (p.value) { usesText = true; inits.push(`    snprintf(s->${field}, sizeof s->${field}, "%s", ${str(p.value)});`); }
+          return wrap(`cui_inline_edit(ui, ${str(field)}, ${ref}, sizeof ${ref}${o})`, 'on_change', (c) => `${c} & CUI_CHANGED`);
+        case 'scrub':
+        case 'ruler_slider':
+          fields.push(`    float ${field};`);
+          initNumber(floatLit);
+          return wrap(`cui_${n.type}(ui, ${str(p.label || '')}, &${ref}, ${floatLit(p.min ?? 0)}, ${floatLit(p.max ?? 100)}${o})`, 'on_change');
+        case 'knob':
+        case 'fader':
+          fields.push(`    float ${field};`);
+          initNumber(floatLit);
+          return wrap(`cui_${n.type}(ui, ${str(field)}, &${ref}, ${floatLit(p.min ?? 0)}, ${floatLit(p.max ?? 100)}${o})`, 'on_change');
+        case 'money':
+          fields.push(`    double ${field};`);
+          initNumber(num);
+          return wrap(`cui_money_input(ui, ${str(field)}, &${ref}${o})`, 'on_change');
+        case 'shortcut_recorder':
+          fields.push(`    cui_key_combo ${field};`);
+          return wrap(`cui_shortcut_recorder(ui, ${str(field)}, &${ref}${o})`, 'on_change');
+        case 'date_range': {
+          fields.push(`    cui_date_range ${field};`);
+          const a = parseDate(p.start), b = parseDate(p.end), d = (x) => (x ? `{ ${x.join(', ')} }` : '{ 0, 0, 0 }');
+          if (a || b) inits.push(`    s->${field} = (cui_date_range){ ${d(a)}, ${d(b)} };`);
+          return wrap(`cui_date_range_picker(ui, ${str(field)}, &${ref}${o})`, 'on_change');
+        }
+        case 'time_picker': {
+          fields.push(`    int ${field}_hour, ${field}_minute;`);
+          const t = parseTime(p.value);
+          if (t && t[0]) inits.push(`    s->${field}_hour = ${t[0]};`);
+          if (t && t[1]) inits.push(`    s->${field}_minute = ${t[1]};`);
+          return wrap(`cui_time_picker(ui, ${str(field)}, &${ref}_hour, &${ref}_minute${o})`, 'on_change');
+        }
+        case 'wheel_picker':
+        case 'aspect_picker':
+          fields.push(`    int ${field};`);
+          initNumber(whole);
+          if (n.type === 'aspect_picker') return wrap(`cui_aspect_picker(ui, ${str(p.label || '')}, &${ref}${o})`, 'on_change');
+          return wrap(`cui_wheel_picker(ui, ${str(field)}, ${itemsArg()}, &${ref}${o})`, 'on_change');
+        case 'ratio_slider':
+          fields.push(`    float ${field};`);
+          initNumber(floatLit);
+          return wrap(`cui_ratio_slider(ui, ${str(p.first || '')}, ${str(p.second || '')}, &${ref}${o})`, 'on_change');
+        case 'step_slider': {
+          fields.push(`    int ${field};`);
+          initNumber(whole);
+          const lo = Math.trunc(Number(p.min ?? 0)), hi = Math.trunc(Number(p.max ?? 0)), names = lines(p.labels);
+          let labels = '';   // the stop names, only with one for every stop: the slider shows labels[value - min]
+          if (hi >= lo && names.length >= hi - lo + 1) {
+            const arr = `${prefix}_${field}_labels`;
+            arrays.push(`static const char *const ${arr}[] = { ${names.map(str).join(', ')} };`);
+            labels = `, .labels = ${arr}`;
+          }
+          return wrap(`cui_step_slider(ui, ${str(p.label || '')}, &${ref}, ${whole(p.min)}, ${whole(p.max)}${o}${labels})`, 'on_change', (c) => `${c} & CUI_WELL_CHANGED`);
+        }
+        case 'gradient_slider':
+          fields.push(`    float ${field};`);
+          initNumber(floatLit);
+          return wrap(`cui_gradient_slider(ui, ${str(p.label || '')}, &${ref}, ${floatLit(p.min ?? 0)}, ${floatLit(p.max ?? 100)}${o})`, 'on_change', (c) => `${c} & CUI_WELL_CHANGED`);
+        case 'seed_field': {
+          fields.push(`    uint32_t ${field};`, `    bool ${field}_locked;`);
+          const seed = seedOf(p.value);
+          if (seed) inits.push(`    s->${field} = ${seed}u;`);
+          if (p.locked === true) inits.push(`    s->${field}_locked = true;`);
+          return wrap(`cui_seed_field(ui, ${str(p.label || '')}, &${ref}, &${ref}_locked${o})`, 'on_change', (c) => `${c} & CUI_WELL_CHANGED`);
+        }
+        case 'banner':
+          fields.push(`    bool ${field};${' '.repeat(Math.max(1, 20 - field.length))}/* shown */`);
+          if (p.value === true) inits.push(`    s->${field} = true;`);
+          return wrap(`cui_banner(ui, ${str(p.text || '')}, &${ref}${o})`, 'on_click');
+        case 'countdown': return `${pad}cui_countdown(ui, ${str(field)}, ${num(p.seconds ?? 0)}${o});\n`;
+        case 'loader': return `${pad}cui_loader(ui${o});\n`;
+        case 'status_tag': {
+          const st = spec.props.find((x) => x.key === 'status').options.find((x) => x[0] === p.status) || ['pending', 'CUI_TAG_PENDING'];
+          return wrap(`cui_status_tag(ui, ${p.label ? str(p.label) : 'NULL'}, ${st[1]}${o})`, 'on_click');
+        }
+        case 'counter': return `${pad}cui_counter(ui, ${str(field)}, ${num(p.value ?? 0)}${o});\n`;
+        case 'radial_gauge':
+          return `${pad}cui_radial_gauge(ui, ${str(field)}, ${floatLit(p.value ?? 0)}, ${floatLit(p.min ?? 0)}, ${floatLit(p.max ?? 100)}${o});\n`;
+        case 'readout': return `${pad}cui_readout(ui, ${str(p.label || '')}, ${str(p.value ?? '')}${o});\n`;
         case 'progress': return `${pad}cui_progress(ui, ${floatLit(p.value ?? 0)}${o});\n`;
         case 'badge': return `${pad}cui_badge(ui, ${str(p.text || '')}${o});\n`;
         case 'alert': return `${pad}cui_alert(ui, ${str(p.title || '')}${o});\n`;
@@ -452,5 +589,5 @@
     };
   }
 
-  return { generate, resolveNames, ident, isIdent, newDocument, walk, parseColumns, parseRows, parseHex, parseChoices, parseSpark };
+  return { generate, resolveNames, ident, isIdent, newDocument, walk, parseColumns, parseRows, parseHex, parseChoices, parseSpark, parseIndexes, parseTime };
 });
