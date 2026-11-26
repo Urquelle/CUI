@@ -41,4 +41,4 @@ Human review: yes / no
 - [ ] Regenerated and looked at the documentation images, or this change is not visual
 - [ ] Updated the header comment and docs if behavior or the API changed
 - [ ] Commits written in part by an AI carry a `Co-Authored-By` trailer naming the model
-- [ ] No AI tool files added (`CLAUDE.md`, `AGENTS.md`, `.cursorrules`, editor settings)
+- [ ] No AI tool files added or changed (`CLAUDE.md`, `AGENTS.md`, `.cursorrules`, editor settings)
