@@ -41,3 +41,4 @@ CLAUDE.local.md
 /editors/vscode/build/
 /editors/vscode/media/designer.wasm
 /editors/vscode/media/runtime.js
+/editors/vscode/*.vsix

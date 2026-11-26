@@ -1,0 +1,9 @@
+# What the packaged extension leaves out: the sources of designer.wasm,
+# the build objects, the tests and the screenshots (the README links them
+# on GitHub). media/designer.wasm and media/runtime.js are built by build.sh.
+build/**
+native/**
+test/**
+docs/**
+build.sh
+*.vsix

@@ -82,6 +82,16 @@ editors/vscode/build.sh          # media/designer.wasm, needs clang with the was
 code --extensionDevelopmentPath="$PWD/editors/vscode" editors/vscode/samples
 ```
 
+To install it in your own VS Code, package it after `build.sh` and install the file:
+
+```sh
+cd editors/vscode && npm run package
+code --install-extension cui-designer-0.1.0.vsix
+```
+
+`npm run package` calls `vsce` with the GitHub addresses for the README's images,
+which `vsce` cannot work out for an extension in a subfolder.
+
 Then open a `*.cui.json` file, or run *CUI: New Design* from the command palette or
 the explorer's context menu on a folder. To work on the webview without VS Code,
 `node editors/vscode/test/serve.js` serves it at http://localhost:8790/ with a stand-in

@@ -5,6 +5,7 @@
   "version": "0.1.0",
   "publisher": "cui",
   "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/yappologistic/CUI.git", "directory": "editors/vscode" },
   "private": true,
   "engines": { "vscode": "^1.75.0" },
   "categories": ["Visualization", "Other"],
@@ -42,6 +43,7 @@
   },
   "scripts": {
     "build": "bash build.sh",
+    "package": "npx --yes @vscode/vsce package --baseContentUrl https://github.com/yappologistic/CUI/blob/HEAD/editors/vscode --baseImagesUrl https://github.com/yappologistic/CUI/raw/HEAD/editors/vscode",
     "test": "node test/codegen.test.js && node --no-warnings test/fidelity.mjs && node test/extension.test.js && node --no-warnings test/smoke.mjs"
   }
 }
