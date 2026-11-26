@@ -7,6 +7,8 @@ it writes `<name>.ui.h` and `<name>.ui.c` next to it.
 This is an experimental prototype. It covers the layout containers and the most
 common components, not all of CUI.
 
+![The designer with a login form: the palette, the live preview with the selected button, and its properties](docs/designer-login.png)
+
 ## What it does
 
 - **Palette**: 50 kinds in eight groups. Drag a component onto the preview, or click it to add it after the selection.
@@ -22,6 +24,12 @@ common components, not all of CUI.
 - **Outline** and **properties**: every option from the component's options struct, edited in place. <kbd>Del</kbd> deletes, <kbd>Alt+↑/↓</kbd> moves, <kbd>Ctrl+D</kbd> duplicates, <kbd>Esc</kbd> selects the parent. *Wrap in row* and *Wrap in column* put a container around the selection.
 - **Undo, redo, save** come from VS Code: the designer edits the JSON text. *Reopen Editor With… → Text Editor* shows the JSON itself.
 - **C code**: the *C code* tab shows it live, *Generate C* (or saving, or *CUI: Generate C Code*) writes it to disk.
+
+![A larger design: a split view with navigation, a scroll area, an accordion with a grid of fields, a stepper and pagination](docs/designer-workspace.png)
+
+![A dialog over a table and a data grid; the selection inside the dialog keeps it open in the designer](docs/designer-dialog-table.png)
+
+The images show the webview in a browser (`test/serve.js`), where it looks as it does in VS Code's dark theme.
 
 ## The generated code
 

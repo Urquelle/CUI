@@ -1,6 +1,7 @@
 // The designer webview in a plain browser, for working on it without VS Code:
 //   node test/serve.js [samples/login.cui.json]   then open http://localhost:8790/
-//   (or http://localhost:8790/?design=samples/settings.cui.json for another design)
+//   (or http://localhost:8790/?design=samples/settings.cui.json for another design,
+//   &select=n12 to select a node, &tab=code to show the generated code)
 // A stand-in for the VS Code API sends the design in and keeps the edits in
 // window.cuiDevEdits (the latest text is also printed to the console).
 'use strict';
@@ -14,8 +15,15 @@ const bootstrap = `<script>
 window.cuiDevEdits = [];
 window.cuiDevHost = {
   postMessage(m) {
-    const design = new URLSearchParams(location.search).get('design') || '${design}';
-    if (m.type === 'ready') fetch('/' + design).then((r) => r.text()).then((text) => window.postMessage({ type: 'load', text, fileName: design.split('/').pop() }, '*'));
+    const q = new URLSearchParams(location.search), design = q.get('design') || '${design}';
+    if (m.type === 'ready') fetch('/' + design).then((r) => r.text()).then((text) => {
+      window.postMessage({ type: 'load', text, fileName: design.split('/').pop() }, '*');
+      // ?select=n12&tab=code: a node selected and a panel tab shown, for screenshots
+      setTimeout(() => {
+        if (q.get('select')) window.cuiDesigner.select(q.get('select'));
+        if (q.get('tab')) document.querySelector('[data-tab="' + q.get('tab') + '"]').click();
+      }, 100);
+    });
     else if (m.type === 'edit') { window.cuiDevEdits.push(m.text); console.log('[edit]', m.text.length, 'bytes'); }
     else console.log('[host]', JSON.stringify(m));
   },
