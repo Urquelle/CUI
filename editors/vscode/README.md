@@ -5,7 +5,9 @@ A design is a `*.cui.json` file. VS Code opens it in the designer, and saving
 it writes `<name>.ui.h` and `<name>.ui.c` next to it.
 
 This is an experimental prototype. It covers the layout containers and the most
-common components, not all of CUI.
+common components, not all of CUI. It is not an extension of the CUI project:
+it lives on a branch of a fork, [Urquelle/CUI](https://github.com/Urquelle/CUI/tree/feature/vscode-designer/editors/vscode),
+and is proposed to the project in [yappologistic/CUI#139](https://github.com/yappologistic/CUI/issues/139).
 
 ![The designer with a login form: the palette, the live preview with the selected button, and its properties](docs/designer-login.png)
 
