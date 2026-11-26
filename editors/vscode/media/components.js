@@ -17,6 +17,14 @@
                 ['danger', 'CUI_TONE_DANGER'], ['violet', 'CUI_TONE_VIOLET'], ['teal', 'CUI_TONE_TEAL'], ['rose', 'CUI_TONE_ROSE'], ['accent', 'CUI_TONE_ACCENT']];
   const DIR = [['column', 'CUI_COLUMN'], ['row', 'CUI_ROW']];
   const TABS_VARIANT = [['underline', 'CUI_TABS_UNDERLINE'], ['pill', 'CUI_TABS_PILL']];
+  // theme colors: '' leaves the option at zero, which means "the default" to every component
+  const COLOR = [['', 'none'], ['background', 'CUI_COLOR_BACKGROUND'], ['surface', 'CUI_COLOR_SURFACE'], ['surface_muted', 'CUI_COLOR_SURFACE_MUTED'],
+                 ['foreground', 'CUI_COLOR_FOREGROUND'], ['secondary', 'CUI_COLOR_TEXT_SECONDARY'], ['muted', 'CUI_COLOR_TEXT_MUTED'], ['border', 'CUI_COLOR_BORDER'],
+                 ['accent', 'CUI_COLOR_ACCENT'], ['accent_subtle', 'CUI_COLOR_ACCENT_SUBTLE'], ['success', 'CUI_COLOR_SUCCESS'], ['warning', 'CUI_COLOR_WARNING'],
+                 ['danger', 'CUI_COLOR_DANGER'], ['info', 'CUI_COLOR_INFO']];
+  const SPINNER_STYLE = [['arc', 'CUI_SPINNER_ARC'], ['comet', 'CUI_SPINNER_COMET'], ['dot_matrix', 'CUI_SPINNER_DOT_MATRIX'], ['radar', 'CUI_SPINNER_RADAR'],
+                         ['ripple', 'CUI_SPINNER_RIPPLE'], ['orbit', 'CUI_SPINNER_ORBIT'], ['bounce', 'CUI_SPINNER_BOUNCE'], ['pulse', 'CUI_SPINNER_PULSE']];
+  const STATUS = [['', 'none'], ['online', '"online"'], ['busy', '"busy"'], ['away', '"away"'], ['offline', '"offline"']];
 
   // kind: text | multiline | number | bool | enum | size | icon | ident
   // c: the options field it sets; props without one are arguments or bindings.
@@ -47,16 +55,36 @@
     onClick: { key: 'on_click', label: 'On click', kind: 'ident', event: 'click' },
     onChange: { key: 'on_change', label: 'On change', kind: 'ident', event: 'change' },
     onSubmit: { key: 'on_submit', label: 'On Enter', kind: 'ident', event: 'submit' },
+    bg: { key: 'bg', label: 'Background', kind: 'enum', options: COLOR, c: 'bg' },
+    border: { key: 'border', label: 'Border', kind: 'number', c: 'border' },
+    radius: { key: 'radius', label: 'Radius', kind: 'number', c: 'radius' },
+    min: { key: 'min', label: 'Min', kind: 'number' },
+    max: { key: 'max', label: 'Max', kind: 'number' },
+    title: { key: 'title', label: 'Title', kind: 'text' },
+    selected: { key: 'selected', label: 'Selected', kind: 'bool', c: 'selected' },
   };
+  const BOX = [P.bg, P.border, P.radius];
 
   const list = [
     { type: 'column', title: 'Column', group: 'Layout', container: true,
-      props: [P.pad, P.gap, P.width, P.height, P.align, P.justify], defaults: { gap: 8 } },
+      props: [P.pad, P.gap, P.width, P.height, P.align, P.justify, ...BOX], defaults: { gap: 8 } },
     { type: 'row', title: 'Row', group: 'Layout', container: true,
-      props: [P.pad, P.gap, P.width, P.height, P.align, P.justify, { key: 'wrap', label: 'Wrap', kind: 'bool', c: 'wrap' }], defaults: { gap: 8 } },
+      props: [P.pad, P.gap, P.width, P.height, P.align, P.justify, { key: 'wrap', label: 'Wrap', kind: 'bool', c: 'wrap' }, ...BOX], defaults: { gap: 8 } },
     { type: 'grid', title: 'Grid', group: 'Layout', container: true,
       props: [{ key: 'columns', label: 'Columns', kind: 'number', c: 'columns' }, { key: 'min_column_width', label: 'Min column width', kind: 'number', c: 'min_column_width' },
-              P.pad, P.gap, P.width, P.height], defaults: { columns: 2, gap: 8 } },
+              P.pad, P.gap, P.width, P.height, ...BOX], defaults: { columns: 2, gap: 8 } },
+    { type: 'scroll', title: 'Scroll area', group: 'Layout', container: true,
+      props: [P.width, P.height, P.pad, P.gap, { key: 'fade_edges', label: 'Fade edges', kind: 'bool', c: 'fade_edges' }],
+      defaults: { width: 'fill', height: '160', gap: 8 } },
+    { type: 'accordion', title: 'Accordion', group: 'Layout', container: true, state: 'bool',
+      props: [P.title, { key: 'value', label: 'Open', kind: 'bool' }, P.bind],
+      defaults: { title: 'Details', value: true } },
+    { type: 'split', title: 'Split view', group: 'Layout', container: true, state: 'float',
+      note: 'The first child is the first pane; the others go in the second.',
+      props: [{ key: 'value', label: 'Ratio (0..1)', kind: 'number' }, { key: 'vertical', label: 'Vertical', kind: 'bool', c: 'vertical' },
+              { key: 'min_first', label: 'Min first', kind: 'number', c: 'min_first' }, { key: 'min_second', label: 'Min second', kind: 'number', c: 'min_second' },
+              P.width, P.height, P.bind],
+      defaults: { value: 0.4, width: 'fill', height: '200' } },
     { type: 'card', title: 'Card', group: 'Layout', container: true,
       props: [{ key: 'dir', label: 'Direction', kind: 'enum', options: DIR, c: 'dir' }, P.pad, P.gap, P.width, P.height, P.align,
               { key: 'muted', label: 'Muted', kind: 'bool', c: 'muted' }, { key: 'hoverable', label: 'Hoverable', kind: 'bool', c: 'hoverable' }],
@@ -71,6 +99,11 @@
       props: [{ key: 'text', label: 'Text', kind: 'multiline' },
               { key: 'style', label: 'Style', kind: 'enum', options: [['body', 'cui_text'], ['label', 'cui_label'], ['secondary', 'cui_secondary'], ['muted', 'cui_muted'], ['code', 'cui_code']] }],
       defaults: { text: 'Some text', style: 'body' } },
+    { type: 'link', title: 'Link', group: 'Text', props: [P.text, P.onClick], defaults: { text: 'Learn more' } },
+    { type: 'kbd', title: 'Key', group: 'Text', props: [{ key: 'text', label: 'Keys', kind: 'text' }], defaults: { text: 'Ctrl K' } },
+    { type: 'icon', title: 'Icon', group: 'Text',
+      props: [{ key: 'icon', label: 'Icon', kind: 'icon' }, { key: 'size', label: 'Size', kind: 'number' }, { key: 'color', label: 'Color', kind: 'enum', options: COLOR }],
+      defaults: { icon: 'star', size: 16 } },
 
     { type: 'button', title: 'Button', group: 'Controls',
       props: [P.label, P.variant, P.size, P.icon, P.fullWidth, P.width, P.disabled, P.tooltip, P.onClick],
@@ -109,6 +142,37 @@
     { type: 'radio_group', title: 'Radio group', group: 'Controls', state: 'int',
       props: [P.items, P.index, P.bind, P.onChange],
       defaults: { items: 'Small\nMedium\nLarge' } },
+    { type: 'search', title: 'Search', group: 'Controls', state: 'text',
+      props: [P.placeholder, { key: 'value', label: 'Text', kind: 'text' }, P.width, P.disabled, P.bind, P.onSubmit],
+      defaults: { placeholder: 'Search', width: 'fill' } },
+    { type: 'number', title: 'Number', group: 'Controls', state: 'double',
+      props: [P.labelOpt, P.min, P.max, { key: 'value', label: 'Value', kind: 'number' }, { key: 'step', label: 'Step', kind: 'number', c: 'step' },
+              { key: 'decimals', label: 'Decimals', kind: 'number', c: 'decimals' }, { key: 'suffix', label: 'Suffix', kind: 'text', c: 'suffix' },
+              P.width, P.disabled, P.bind, P.onChange],
+      defaults: { label: 'Quantity', min: 0, max: 100, value: 1, step: 1 } },
+    { type: 'chip', title: 'Chip', group: 'Controls', state: 'bool',
+      props: [P.label, { key: 'value', label: 'Selected', kind: 'bool' }, P.icon, P.disabled, P.bind, P.onChange],
+      defaults: { label: 'Filter' } },
+    { type: 'rating', title: 'Rating', group: 'Controls', state: 'int',
+      props: [{ key: 'value', label: 'Value', kind: 'number' }, { key: 'max', label: 'Stars', kind: 'number' }, P.bind, P.onChange],
+      defaults: { value: 3, max: 5 } },
+    { type: 'range_slider', title: 'Range slider', group: 'Controls', state: 'range',
+      props: [P.label, P.min, P.max, { key: 'low', label: 'Low', kind: 'number' }, { key: 'high', label: 'High', kind: 'number' }, P.bind, P.onChange],
+      defaults: { label: 'Price', min: 0, max: 100, low: 20, high: 80 } },
+    { type: 'date_picker', title: 'Date picker', group: 'Controls', state: 'date',
+      props: [P.labelOpt, { key: 'value', label: 'Date (YYYY-MM-DD)', kind: 'text' }, P.placeholder, P.width, P.bind, P.onChange],
+      defaults: { label: 'Date', value: '2026-11-26' } },
+
+    { type: 'nav_section', title: 'Nav section', group: 'Navigation', props: [P.title], defaults: { title: 'Workspace' } },
+    { type: 'nav_item', title: 'Nav item', group: 'Navigation',
+      props: [P.label, P.icon, { key: 'badge', label: 'Badge', kind: 'text', c: 'badge' }, P.selected, { key: 'group', label: 'Group', kind: 'text', c: 'group' }, P.onClick],
+      defaults: { label: 'Inbox', icon: 'inbox' } },
+    { type: 'breadcrumb', title: 'Breadcrumb', group: 'Navigation', props: [P.items, P.onClick], defaults: { items: 'Home\nProjects\nCUI' } },
+    { type: 'pagination', title: 'Pagination', group: 'Navigation', state: 'int',
+      props: [{ key: 'value', label: 'Page (from 0)', kind: 'number' }, { key: 'count', label: 'Pages', kind: 'number' }, P.bind, P.onChange],
+      defaults: { value: 0, count: 8 } },
+    { type: 'stepper', title: 'Stepper', group: 'Navigation',
+      props: [P.items, { key: 'current', label: 'Current step', kind: 'number' }], defaults: { items: 'Account\nProfile\nDone', current: 1 } },
 
     { type: 'progress', title: 'Progress', group: 'Feedback',
       props: [{ key: 'value', label: 'Value (0..1)', kind: 'number' }, P.labelOpt, P.showValue, P.tone, P.width],
@@ -119,8 +183,29 @@
     { type: 'alert', title: 'Alert', group: 'Feedback',
       props: [{ key: 'title', label: 'Title', kind: 'text' }, P.description, P.tone, P.icon],
       defaults: { title: 'Heads up', description: 'Something needs your attention.', tone: 'info' } },
+    { type: 'spinner', title: 'Spinner', group: 'Feedback',
+      props: [{ key: 'size', label: 'Size', kind: 'number' }, { key: 'style', label: 'Style', kind: 'enum', options: SPINNER_STYLE, c: 'style' },
+              { key: 'color', label: 'Color', kind: 'enum', options: COLOR, c: 'color' }],
+      defaults: { size: 20 } },
+    { type: 'skeleton', title: 'Skeleton', group: 'Feedback',
+      props: [{ key: 'width', label: 'Width', kind: 'size' }, { key: 'height', label: 'Height', kind: 'number' }], defaults: { width: 'fill', height: 12 } },
+    { type: 'empty_state', title: 'Empty state', group: 'Feedback',
+      props: [P.title, P.icon, P.description, { key: 'action', label: 'Action', kind: 'text', c: 'action' }, P.onClick],
+      defaults: { title: 'No messages', icon: 'inbox', description: 'New mail shows up here.', action: 'Refresh' } },
+
+    { type: 'avatar', title: 'Avatar', group: 'Display',
+      props: [{ key: 'name', label: 'Name', kind: 'text' }, { key: 'size', label: 'Size', kind: 'number', c: 'size' },
+              { key: 'status', label: 'Status', kind: 'enum', options: STATUS, c: 'status' }, { key: 'square', label: 'Square', kind: 'bool', c: 'square' }],
+      defaults: { name: 'Ada Lovelace' } },
+    { type: 'list_item', title: 'List item', group: 'Display',
+      props: [P.title, { key: 'subtitle', label: 'Subtitle', kind: 'text', c: 'subtitle' }, P.icon, { key: 'trailing', label: 'Trailing', kind: 'text', c: 'trailing' },
+              { key: 'avatar', label: 'Avatar name', kind: 'text', c: 'avatar' }, P.selected, P.onClick],
+      defaults: { title: 'Quarterly report', subtitle: 'Updated yesterday', icon: 'file_text', trailing: '2 MB' } },
+    { type: 'meter', title: 'Meter', group: 'Display',
+      props: [P.label, { key: 'used', label: 'Used', kind: 'number' }, { key: 'total', label: 'Total', kind: 'number' }, { key: 'unit', label: 'Unit', kind: 'text' }],
+      defaults: { label: 'Storage', used: 42, total: 128, unit: 'GB' } },
   ];
 
   const byType = Object.fromEntries(list.map((c) => [c.type, c]));
-  return { list, byType, groups: ['Layout', 'Text', 'Controls', 'Feedback'] };
+  return { list, byType, groups: ['Layout', 'Text', 'Controls', 'Navigation', 'Feedback', 'Display'] };
 });

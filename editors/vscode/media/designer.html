@@ -29,13 +29,16 @@
       <label>H <input id="ph" type="number" min="80" max="4000" step="10"></label>
       <select id="theme" aria-label="Theme"><option value="light">Light</option><option value="dark">Dark</option></select>
       <select id="accent" aria-label="Accent"></select>
+      <select id="zoom" aria-label="Zoom"><option value="fit">Fit</option><option value="0.5">50%</option><option value="0.75">75%</option><option value="1">100%</option><option value="1.5">150%</option></select>
       <span class="fill"></span>
       <button id="gen" title="Write the .ui.h and .ui.c files next to the design">Generate C</button>
     </div>
     <div id="stage">
-      <div id="frame">
-        <canvas id="canvas" tabindex="0" aria-label="Preview"></canvas>
-        <div id="overlay"></div>
+      <div id="sizer">
+        <div id="frame">
+          <canvas id="canvas" tabindex="0" aria-label="Preview"></canvas>
+          <div id="overlay"></div>
+        </div>
       </div>
     </div>
     <div id="status"></div>

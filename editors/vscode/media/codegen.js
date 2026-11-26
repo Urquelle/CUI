@@ -36,7 +36,7 @@
       const spec = C.byType[n.type];
       if (!spec || !spec.state) return;
       const p = n.props || {};
-      let base = p.bind && isIdent(p.bind) ? p.bind : ident(p.label || (p.items || '').split('\n')[0], n.type);
+      let base = p.bind && isIdent(p.bind) ? p.bind : ident(p.label || p.title || (p.items || '').split('\n')[0], n.type);
       let name = base, k = 2;
       while (used.has(name)) name = `${base}_${k++}`;
       used.add(name);
@@ -75,6 +75,17 @@
     return `CUI_PX(${num(v)})`;
   }
   const iconMacro = (name) => 'CUI_ICON_' + String(name).toUpperCase();
+  // "2026-11-26" as year, month and day, or null: native/designer.c reads it the same way
+  function parseDate(v) {
+    const m = /^(\d+)-(\d+)-(\d+)$/.exec(String(v || ''));
+    if (!m || +m[2] < 1 || +m[2] > 12 || +m[3] < 1 || +m[3] > 31) return null;
+    return [+m[1], +m[2], +m[3]];
+  }
+  function colorExpr(spec, key, value) {   // a theme color property as an expression, or null for none
+    const prop = spec.props.find((x) => x.key === key);
+    const i = prop.options.findIndex((o) => o[0] === value);
+    return i > 0 ? prop.options[i][1] : null;
+  }
 
   // ", .field = value" for every option that differs from its zero value.
   function options(spec, props) {
@@ -131,16 +142,28 @@
       const itemsArg = () => {
         const list = items(p);
         if (!list.length) return 'NULL, 0';
-        const arr = `${prefix}_${field}_items`;
+        const arr = `${prefix}_${field || n.id}_items`;
         arrays.push(`static const char *const ${arr}[] = { ${list.map(str).join(', ')} };`);
         return `${arr}, ${list.length}`;
       };
 
+      if (n.type === 'split') {   // the first child is the first pane, the others the second
+        fields.push(`    float ${field};`);
+        if (Number(p.value)) inits.push(`    s->${field} = ${floatLit(p.value)};`);
+        const [first, ...rest] = n.children || [];
+        const inner = (first ? emit(first, depth + 1) : '') + `${pad}    cui_split_next(ui);\n` + rest.map((c) => emit(c, depth + 1)).join('');
+        return `${pad}cui_split(ui, ${str(field)}, &${ref}${o}) {\n${inner}${pad}}\n`;
+      }
       if (spec.container) {
-        const macro = n.type === 'grid' ? 'cui_box' : `cui_${n.type}`;
-        const extra = n.type === 'grid' ? ', .dir = CUI_GRID' : '';
+        let head;
+        if (n.type === 'accordion') {
+          fields.push(`    bool ${field};`);
+          if (p.value === true) inits.push(`    s->${field} = true;`);
+          head = `cui_accordion(ui, ${str(p.title || '')}, &${ref})`;
+        } else if (n.type === 'grid') head = `cui_box(ui, .dir = CUI_GRID${o})`;
+        else head = `cui_${n.type}(ui${o})`;
         const kids = (n.children || []).map((c) => emit(c, depth + 1)).join('');
-        return kids ? `${pad}${macro}(ui${extra}${o}) {\n${kids}${pad}}\n` : `${pad}${macro}(ui${extra}${o}) {}\n`;
+        return kids ? `${pad}${head} {\n${kids}${pad}}\n` : `${pad}${head} {}\n`;
       }
       switch (n.type) {
         case 'separator': return `${pad}cui_separator(ui);\n`;
@@ -181,6 +204,52 @@
           fields.push(`    int ${field};`);
           if (Number(p.value)) inits.push(`    s->${field} = ${num(Math.trunc(Number(p.value)))};`);
           return wrap(`cui_radio_group(ui, ${str(field)}, ${itemsArg()}, &${ref})`, 'on_change');
+        case 'link': return wrap(`cui_link(ui, ${str(p.text || '')})`, 'on_click');
+        case 'kbd': return `${pad}cui_kbd(ui, ${str(p.text || '')});\n`;
+        case 'icon':
+          usesIcons = true;
+          return `${pad}cui_icon(ui, ${iconMacro(p.icon || 'star')}, ${floatLit(p.size ?? 0)}, ${colorExpr(spec, 'color', p.color) || 'CUI_TRANSPARENT'});\n`;
+        case 'search':
+          fields.push(`    char ${field}[${TEXT_CAP}];`);
+          if (p.value) { usesText = true; inits.push(`    snprintf(s->${field}, sizeof s->${field}, "%s", ${str(p.value)});`); }
+          return wrap(`cui_search(ui, ${str(field)}, ${ref}, sizeof ${ref}${o})`, 'on_submit', (c) => `${c} & CUI_SUBMITTED`);
+        case 'number':
+          fields.push(`    double ${field};`);
+          if (Number(p.value)) inits.push(`    s->${field} = ${num(p.value)};`);
+          return wrap(`cui_number(ui, ${str(field)}, &${ref}, ${num(p.min ?? 0)}, ${num(p.max ?? 100)}${o})`, 'on_change');
+        case 'chip':
+          fields.push(`    bool ${field};`);
+          if (p.value === true) inits.push(`    s->${field} = true;`);
+          return wrap(`cui_chip(ui, ${str(p.label || '')}, &${ref}${o})`, 'on_change');
+        case 'rating':
+          fields.push(`    int ${field};`);
+          if (Number(p.value)) inits.push(`    s->${field} = ${num(Math.trunc(Number(p.value)))};`);
+          return wrap(`cui_rating(ui, ${str(field)}, &${ref}, ${num(Math.trunc(Number(p.max ?? 5)))})`, 'on_change');
+        case 'range_slider':
+          fields.push(`    float ${field}_low, ${field}_high;`);
+          if (Number(p.low)) inits.push(`    s->${field}_low = ${floatLit(p.low)};`);
+          if (Number(p.high)) inits.push(`    s->${field}_high = ${floatLit(p.high)};`);
+          return wrap(`cui_range_slider(ui, ${str(p.label || '')}, &${ref}_low, &${ref}_high, ${floatLit(p.min ?? 0)}, ${floatLit(p.max ?? 100)})`, 'on_change');
+        case 'date_picker': {
+          fields.push(`    cui_date ${field};`);
+          const d = parseDate(p.value);
+          if (d) inits.push(`    s->${field} = (cui_date){ ${d.join(', ')} };`);
+          return wrap(`cui_date_picker(ui, ${str(field)}, &${ref}${o})`, 'on_change');
+        }
+        case 'nav_section': return `${pad}cui_nav_section(ui, ${str(p.title || '')});\n`;
+        case 'nav_item': return wrap(`cui_nav_item(ui, ${str(p.label || '')}${o})`, 'on_click');
+        case 'breadcrumb': return wrap(`cui_breadcrumb(ui, ${itemsArg()})`, 'on_click', (c) => `${c} >= 0`);
+        case 'pagination':
+          fields.push(`    int ${field};`);
+          if (Number(p.value)) inits.push(`    s->${field} = ${num(Math.trunc(Number(p.value)))};`);
+          return wrap(`cui_pagination(ui, ${str(field)}, &${ref}, ${num(Math.trunc(Number(p.count ?? 1)))})`, 'on_change');
+        case 'stepper': return `${pad}cui_stepper(ui, ${itemsArg()}, ${num(Math.trunc(Number(p.current ?? 0)))});\n`;
+        case 'spinner': return `${pad}cui_spinner(ui, ${floatLit(p.size ?? 0)}${o});\n`;
+        case 'skeleton': return `${pad}cui_skeleton(ui, ${size(p.width) || 'CUI_FIT'}, ${floatLit(p.height ?? 0)});\n`;
+        case 'empty_state': return wrap(`cui_empty_state(ui, ${str(p.title || '')}${o})`, 'on_click');
+        case 'avatar': return `${pad}cui_avatar(ui, ${str(p.name || '')}${o});\n`;
+        case 'list_item': return wrap(`cui_list_item(ui, ${str(p.title || '')}${o})`, 'on_click');
+        case 'meter': return `${pad}cui_meter(ui, ${str(p.label || '')}, ${floatLit(p.used ?? 0)}, ${floatLit(p.total ?? 0)}, ${str(p.unit || '')});\n`;
         case 'progress': return `${pad}cui_progress(ui, ${floatLit(p.value ?? 0)}${o});\n`;
         case 'badge': return `${pad}cui_badge(ui, ${str(p.text || '')}${o});\n`;
         case 'alert': return `${pad}cui_alert(ui, ${str(p.title || '')}${o});\n`;

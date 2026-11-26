@@ -9,8 +9,14 @@ common components, not all of CUI.
 
 ## What it does
 
-- **Palette**: the containers column, row, grid and card, plus separator, spacer, heading, text, button, icon button, checkbox, switch, slider, text field, text area, select, segmented control, tabs, radio group, progress, badge and alert. Drag a component onto the preview, or click it to add it after the selection.
-- **Preview**: the real library compiled to WebAssembly and drawn by its software renderer. It is not an imitation: what you see is what the generated code draws (see [Checks](#checks)). In **Design** mode you select, drag and move. In **Try it** mode the preview takes the mouse and keyboard like the app, and the status line names the event handler that a click or change would call.
+- **Palette**: 45 kinds in six groups. Drag a component onto the preview, or click it to add it after the selection.
+  - *Layout*: column, row and grid (with a theme background, border and radius), scroll area, accordion, split view (the first child is the first pane), card, separator, spacer.
+  - *Text*: heading, text, link, key cap, icon.
+  - *Controls*: button, icon button, checkbox, switch, slider, text field, text area, select, segmented control, tabs, radio group, search, number field, chip, rating, range slider, date picker.
+  - *Navigation*: nav section, nav item, breadcrumb, pagination, stepper.
+  - *Feedback*: progress, badge, alert, spinner, skeleton, empty state.
+  - *Display*: avatar, list item, meter.
+- **Preview**: the real library compiled to WebAssembly and drawn by its software renderer. *Fit* zooms a large design out to the editor's size; the other zoom levels are fixed. It is not an imitation: what you see is what the generated code draws (see [Checks](#checks)). In **Design** mode you select, drag and move. In **Try it** mode the preview takes the mouse and keyboard like the app, and the status line names the event handler that a click or change would call.
 - **Outline** and **properties**: every option from the component's options struct, edited in place. <kbd>Del</kbd> deletes, <kbd>Alt+↑/↓</kbd> moves, <kbd>Ctrl+D</kbd> duplicates, <kbd>Esc</kbd> selects the parent. *Wrap in row* and *Wrap in column* put a container around the selection.
 - **Undo, redo, save** come from VS Code: the designer edits the JSON text. *Reopen Editor With… → Text Editor* shows the JSON itself.
 - **C code**: the *C code* tab shows it live, *Generate C* (or saving, or *CUI: Generate C Code*) writes it to disk.
@@ -89,7 +95,7 @@ node test/smoke.mjs                # the preview module builds a tree and report
 
 ## Not done yet
 
-- Most of CUI's 210 components: tables, trees, charts, dialogs, menus, date pickers, scroll areas, split views and the rest.
+- Most of CUI's 210 components: tables, trees, charts, dialogs, sheets, popovers, menus, toolbars, color pickers, images and the rest. The ones that need data from code (tables, charts, images) need a way to name that data first.
 - Dynamic text (a label that shows a value from the state), lists built from data, and showing parts of the UI only under a condition.
 - Reading hand-written C back into a design. The generator writes in one direction.
 - Packaging as a `.vsix` and building in CI.

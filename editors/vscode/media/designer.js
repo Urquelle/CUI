@@ -140,11 +140,23 @@ function sendToPreview() {
 
 const previewSize = () => ({ w: Math.max(120, +doc.preview.width || 480), h: Math.max(80, +doc.preview.height || 360) });
 
+// Zoom is the viewer's, not the design's: "fit" shrinks a large preview to the stage, never enlarges it.
+let zoomSetting = 'fit', zoom = 1;
+function applyZoom() {
+  const { w, h } = previewSize(), st = $('#stage');
+  zoom = zoomSetting === 'fit' ? Math.max(0.1, Math.min(1, (st.clientWidth - 48) / w, (st.clientHeight - 48) / h)) : +zoomSetting;
+  Object.assign($('#frame').style, { width: w + 'px', height: h + 'px', transform: zoom === 1 ? '' : `scale(${zoom})` });
+  $('#sizer').style.width = w * zoom + 'px';
+  $('#sizer').style.height = h * zoom + 'px';
+  // render at the zoomed resolution, so the preview stays sharp
+  if (inst) { x.inst_resize(inst, w, h, (window.devicePixelRatio || 1) * zoom); poke(); }
+}
+
 function applyPreviewSettings() {
   const { w, h } = previewSize();
   const c = $('#canvas');
   c.style.width = w + 'px'; c.style.height = h + 'px';
-  x.inst_resize(inst, w, h, window.devicePixelRatio || 1);
+  applyZoom();
   x.inst_set_theme(inst, doc.preview.theme === 'dark' ? 1 : 0);
   x.inst_set_accent(inst, Math.max(0, ACCENTS.indexOf(doc.preview.accent || 'neutral')));
   poke();
@@ -214,7 +226,7 @@ function drawOverlay() {
 
 function label(n) {
   const spec = specOf(n), p = n.props;
-  const t = p.label || p.text || p.title || (p.items ? p.items.split('\n')[0] + '…' : '');
+  const t = p.label || p.text || p.title || p.name || (p.items ? p.items.split('\n')[0] + '…' : '');
   return spec ? spec.title + (t ? ` · ${String(t).slice(0, 24)}` : '') : n.type;
 }
 
@@ -232,7 +244,8 @@ function hit(px, py, containers, skip) {
   return best || (containers ? doc.root : null);
 }
 
-const axisOf = (n) => n.type === 'row' || (n.type === 'card' && n.props.dir === 'row') ? 'x' : n.type === 'grid' ? 'grid' : 'y';
+const axisOf = (n) => n.type === 'row' || (n.type === 'card' && n.props.dir === 'row') || (n.type === 'split' && !n.props.vertical) ? 'x'
+  : n.type === 'grid' ? 'grid' : 'y';
 
 // Where a drop at the point would go: the container and the index among its children.
 function dropAt(px, py, moving) {
@@ -262,8 +275,13 @@ function dropAt(px, py, moving) {
 }
 
 function overlayPos(e) {
-  const r = $('#overlay').getBoundingClientRect();
-  return [e.clientX - r.left, e.clientY - r.top];
+  return toPoints($('#overlay'), e);
+}
+// Client pixels to preview points, by the size the element really has on screen: the
+// zoom here and any scaling around the page (the webview's own zoom) both count.
+function toPoints(elem, e) {
+  const r = elem.getBoundingClientRect(), k = r.width / elem.offsetWidth || 1;
+  return [(e.clientX - r.left) / k, (e.clientY - r.top) / k];
 }
 
 // ---------------------------------------------------------------- drag and drop
@@ -383,7 +401,7 @@ function testKey(e, down) {
 }
 function bindCanvas() {
   const c = $('#canvas');
-  const pos = (e) => { const r = c.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  const pos = (e) => toPoints(c, e);
   const button = (e) => e.button === 2 ? 1 : e.button === 1 ? 2 : 0;
   c.addEventListener('pointermove', (e) => { if (mode !== 'test') return; x.inst_mouse_move(inst, ...pos(e)); poke(); });
   c.addEventListener('pointerdown', (e) => {
@@ -411,7 +429,7 @@ function bindCanvas() {
 
 function reportEvent(n) {
   if (!n) return;
-  const p = n.props, key = n.type === 'button' || n.type === 'icon_button' ? 'on_click' : n.type === 'input' ? 'on_submit' : 'on_change';
+  const p = n.props, ev = (specOf(n).props || []).find((x) => x.event), key = ev ? ev.key : 'on_change';
   const h = p[key] && isIdent(p[key]) ? `calls <b>${esc(p[key])}(ui, s)</b>` : `no handler (set “${key.replace('_', ' ')}” to call one)`;
   status(`${esc(label(n))}: ${key.slice(3)} → ${h}`);
 }
@@ -514,8 +532,12 @@ function renderPanel() {
       el('button', { onclick: () => act('wrap-row') }, 'Wrap in row'), el('button', { onclick: () => act('wrap-column') }, 'Wrap in column'),
       el('button', { onclick: () => act('delete'), title: 'Del' }, 'Delete')));
   }
+  if (spec && spec.note) panel.append(el('p', { class: 'note' }, spec.note));
   if (spec) for (const prop of spec.props) panel.append(field(prop, n));
-  if (spec && spec.state) panel.append(el('p', { class: 'note' }, `Its value lives in s->${names.get(n.id)}.`));
+  if (spec && spec.state) {
+    const f = names.get(n.id);
+    panel.append(el('p', { class: 'note' }, spec.state === 'range' ? `Its values live in s->${f}_low and s->${f}_high.` : `Its value lives in s->${f}.`));
+  }
   if (n === doc.root) {
     panel.append(el('h3', {}, 'Design'));
     const name = el('input', { type: 'text', value: doc.name || '', placeholder: baseName(), spellcheck: 'false',
@@ -541,6 +563,8 @@ function bindToolbar() {
   $('#theme').addEventListener('change', (e) => setPreview('theme', e.target.value));
   $('#accent').addEventListener('change', (e) => setPreview('accent', e.target.value));
   $('#gen').addEventListener('click', () => host.postMessage({ type: 'generate' }));
+  $('#zoom').addEventListener('change', (e) => { zoomSetting = e.target.value; if (doc) applyZoom(); });
+  new ResizeObserver(() => { if (doc && zoomSetting === 'fit') applyZoom(); }).observe($('#stage'));
   document.querySelectorAll('[data-tab]').forEach((b) => b.addEventListener('click', () => {
     document.querySelectorAll('[data-tab]').forEach((k) => k.classList.toggle('on', k === b));
     $('#props').hidden = b.dataset.tab !== 'props';

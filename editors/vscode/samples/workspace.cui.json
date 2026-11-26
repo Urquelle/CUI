@@ -1,0 +1,62 @@
+{
+  "cui_designer": 1,
+  "name": "workspace",
+  "preview": { "width": 960, "height": 640, "theme": "light", "accent": "green" },
+  "root": {
+    "id": "n1", "type": "column", "props": { "width": "fill", "height": "fill" },
+    "children": [
+      { "id": "n2", "type": "split", "props": { "value": 0.26, "min_first": 180, "width": "fill", "height": "fill", "bind": "sidebar" }, "children": [
+        { "id": "n3", "type": "column", "props": { "pad": 12, "gap": 2, "width": "fill", "height": "fill", "bg": "surface_muted" }, "children": [
+          { "id": "n4", "type": "row", "props": { "gap": 8, "pad": 6 }, "children": [
+            { "id": "n5", "type": "avatar", "props": { "name": "Ada Lovelace", "size": 28, "status": "online" } },
+            { "id": "n6", "type": "text", "props": { "text": "Ada Lovelace", "style": "label" } }
+          ] },
+          { "id": "n7", "type": "search", "props": { "placeholder": "Suchen", "width": "fill", "bind": "query", "on_submit": "workspace_search" } },
+          { "id": "n8", "type": "nav_section", "props": { "title": "Postfach" } },
+          { "id": "n9", "type": "nav_item", "props": { "label": "Eingang", "icon": "inbox", "badge": "12", "selected": true, "on_click": "workspace_open_inbox" } },
+          { "id": "n10", "type": "nav_item", "props": { "label": "Ordner", "icon": "folder" } },
+          { "id": "n11", "type": "nav_item", "props": { "label": "Einstellungen", "icon": "settings" } },
+          { "id": "n12", "type": "spacer", "props": {} },
+          { "id": "n13", "type": "meter", "props": { "label": "Speicher", "used": 42.5, "total": 128, "unit": "GB" } }
+        ] },
+        { "id": "n14", "type": "column", "props": { "pad": 20, "gap": 12, "width": "fill", "height": "fill" }, "children": [
+          { "id": "n15", "type": "row", "props": { "gap": 8, "width": "fill" }, "children": [
+            { "id": "n16", "type": "breadcrumb", "props": { "items": "Start\nPostfach\nEingang", "on_click": "workspace_go" } },
+            { "id": "n17", "type": "spacer", "props": {} },
+            { "id": "n18", "type": "kbd", "props": { "text": "Ctrl K" } },
+            { "id": "n19", "type": "spinner", "props": { "size": 18, "style": "dot_matrix", "color": "accent" } }
+          ] },
+          { "id": "n20", "type": "row", "props": { "gap": 6, "wrap": true }, "children": [
+            { "id": "n21", "type": "chip", "props": { "label": "Ungelesen", "value": true, "icon": "bell" } },
+            { "id": "n22", "type": "chip", "props": { "label": "Mit Anhang" } },
+            { "id": "n23", "type": "rating", "props": { "value": 4, "max": 5, "bind": "stars" } }
+          ] },
+          { "id": "n24", "type": "scroll", "props": { "width": "fill", "height": "fill", "gap": 2, "fade_edges": true }, "children": [
+            { "id": "n25", "type": "list_item", "props": { "title": "Quartalsbericht", "subtitle": "Aktualisiert gestern", "icon": "file_text", "trailing": "2 MB", "selected": true, "on_click": "workspace_open" } },
+            { "id": "n26", "type": "list_item", "props": { "title": "Teamtreffen", "subtitle": "Morgen, 10:00", "avatar": "Grace Hopper", "trailing": "09:12" } },
+            { "id": "n27", "type": "accordion", "props": { "title": "Filter", "value": true }, "children": [
+              { "id": "n28", "type": "grid", "props": { "columns": 2, "gap": 12, "width": "fill", "pad": 4 }, "children": [
+                { "id": "n29", "type": "number", "props": { "label": "Anzahl", "min": 1, "max": 50, "value": 10, "step": 1, "suffix": "Stk", "width": "fill" } },
+                { "id": "n30", "type": "date_picker", "props": { "label": "Seit", "value": "2026-11-01", "width": "fill" } },
+                { "id": "n31", "type": "range_slider", "props": { "label": "Größe (MB)", "min": 0, "max": 20, "low": 2, "high": 12.5 } },
+                { "id": "n32", "type": "column", "props": { "gap": 6, "pad": 8, "border": 1, "radius": 8, "bg": "accent_subtle" }, "children": [
+                  { "id": "n33", "type": "row", "props": { "gap": 6 }, "children": [
+                    { "id": "n34", "type": "icon", "props": { "icon": "star", "size": 14, "color": "warning" } },
+                    { "id": "n35", "type": "link", "props": { "text": "Gespeicherte Filter", "on_click": "workspace_saved" } }
+                  ] },
+                  { "id": "n36", "type": "skeleton", "props": { "width": "fill", "height": 8 } },
+                  { "id": "n37", "type": "skeleton", "props": { "width": "60%", "height": 8 } }
+                ] }
+              ] }
+            ] },
+            { "id": "n38", "type": "empty_state", "props": { "title": "Keine weiteren Nachrichten", "icon": "inbox", "description": "Alles gelesen.", "action": "Aktualisieren", "on_click": "workspace_refresh" } }
+          ] },
+          { "id": "n39", "type": "row", "props": { "width": "fill", "justify": "between", "align": "center" }, "children": [
+            { "id": "n40", "type": "stepper", "props": { "items": "Lesen\nAntworten\nArchivieren", "current": 1 } },
+            { "id": "n41", "type": "pagination", "props": { "value": 2, "count": 9, "bind": "page" } }
+          ] }
+        ] }
+      ] }
+    ]
+  }
+}

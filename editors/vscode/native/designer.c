@@ -13,21 +13,29 @@
 enum { DSG_MAX_NODES = 1024, DSG_MAX_PROPS = 32, DSG_MAX_ITEMS = 32, DSG_MAX_EVENTS = 64, DSG_TEXT_CAP = 256 };
 
 typedef enum dsg_kind {
-    DSG_COLUMN, DSG_ROW, DSG_GRID, DSG_CARD,
-    DSG_HEADING, DSG_TEXT, DSG_BUTTON, DSG_ICON_BUTTON,
+    /* containers first: dsg_is_container relies on it */
+    DSG_COLUMN, DSG_ROW, DSG_GRID, DSG_CARD, DSG_SCROLL, DSG_ACCORDION, DSG_SPLIT,
+    DSG_HEADING, DSG_TEXT, DSG_LINK, DSG_KBD, DSG_ICON, DSG_BUTTON, DSG_ICON_BUTTON,
     DSG_CHECKBOX, DSG_SWITCH, DSG_SLIDER, DSG_INPUT, DSG_TEXTAREA,
     DSG_SELECT, DSG_SEGMENTED, DSG_TABS, DSG_RADIO_GROUP,
-    DSG_PROGRESS, DSG_BADGE, DSG_ALERT, DSG_SEPARATOR, DSG_SPACER,
+    DSG_SEARCH, DSG_NUMBER, DSG_CHIP, DSG_RATING, DSG_RANGE_SLIDER, DSG_DATE_PICKER,
+    DSG_NAV_SECTION, DSG_NAV_ITEM, DSG_BREADCRUMB, DSG_PAGINATION, DSG_STEPPER,
+    DSG_PROGRESS, DSG_BADGE, DSG_ALERT, DSG_SPINNER, DSG_SKELETON, DSG_EMPTY_STATE,
+    DSG_AVATAR, DSG_LIST_ITEM, DSG_METER, DSG_SEPARATOR, DSG_SPACER,
     DSG_KIND_COUNT
 } dsg_kind;
+#define dsg_is_container(k) ((k) <= DSG_SPLIT)
 
 /* The names media/components.js uses for the same kinds. */
 static const char *const dsg_kind_names[DSG_KIND_COUNT] = {
-    "column", "row", "grid", "card",
-    "heading", "text", "button", "icon_button",
+    "column", "row", "grid", "card", "scroll", "accordion", "split",
+    "heading", "text", "link", "kbd", "icon", "button", "icon_button",
     "checkbox", "switch", "slider", "input", "textarea",
     "select", "segmented", "tabs", "radio_group",
-    "progress", "badge", "alert", "separator", "spacer",
+    "search", "number", "chip", "rating", "range_slider", "date_picker",
+    "nav_section", "nav_item", "breadcrumb", "pagination", "stepper",
+    "progress", "badge", "alert", "spinner", "skeleton", "empty_state",
+    "avatar", "list_item", "meter", "separator", "spacer",
 };
 
 typedef struct dsg_prop { char *key, *value; } dsg_prop;
@@ -42,8 +50,10 @@ typedef struct dsg_node {
     int item_count;
     /* live values, so the preview can be tried out like the app */
     bool on;
-    float value;
+    float value, high;                    /* a slider's value or a split's ratio; a range's low and high */
     int index;
+    double number;
+    cui_date date;
     char text[DSG_TEXT_CAP];
     int ui_node;                          /* its first node in the latest frame, or -1 */
 } dsg_node;
@@ -169,14 +179,31 @@ static const char *dsg_icon_glyph(const dsg_node *n, const char *key) {
     return NULL;
 }
 
+/* "2026-11-26"; anything else is no date. */
+static cui_date dsg_parse_date(const char *v) {
+    cui_date d = { 0, 0, 0 };
+    int part[3] = { 0, 0, 0 }, k = 0, digits = 0;
+    for (; v && *v && k < 3; v++) {
+        if (*v >= '0' && *v <= '9') { part[k] = part[k] * 10 + (*v - '0'); digits++; }
+        else if (*v == '-' && digits) { k++; digits = 0; }
+        else return d;
+    }
+    if (k == 2 && digits && part[1] >= 1 && part[1] <= 12 && part[2] >= 1 && part[2] <= 31) { d.year = part[0]; d.month = part[1]; d.day = part[2]; }
+    return d;
+}
+
 /* Sets the live values from the document, after it was sent in. */
 DSG_EXPORT(dsg_commit) void dsg_commit(void) {
     for (int i = 0; i < dsg_node_count; i++) {
         dsg_node *n = &dsg_nodes[i];
         n->on = dsg_flag(n, "value");
-        n->value = dsg_num(n, "value", 0);
+        n->value = n->kind == DSG_RANGE_SLIDER ? dsg_num(n, "low", 0) : dsg_num(n, "value", 0);
+        n->high = dsg_num(n, "high", 0);
         n->index = (int)dsg_num(n, "value", 0);
-        snprintf(n->text, sizeof n->text, "%s", n->kind == DSG_INPUT || n->kind == DSG_TEXTAREA ? dsg_str(n, "value") : "");
+        const char *v = dsg_get(n, "value");
+        n->number = v && *v ? strtod(v, NULL) : 0;
+        n->date = dsg_parse_date(v);
+        snprintf(n->text, sizeof n->text, "%s", n->kind == DSG_INPUT || n->kind == DSG_TEXTAREA || n->kind == DSG_SEARCH ? dsg_str(n, "value") : "");
     }
 }
 
@@ -189,11 +216,28 @@ static const char *const dsg_control_size_names[] = { "md", "sm", "lg" };
 static const char *const dsg_tone_names[] = { "neutral", "info", "success", "warning", "danger", "violet", "teal", "rose", "accent" };
 static const char *const dsg_tabs_variant_names[] = { "underline", "pill" };
 static const char *const dsg_dir_names[] = { "column", "row" };
+static const char *const dsg_color_names[] = { "", "background", "surface", "surface_muted", "foreground", "secondary", "muted", "border",
+                                               "accent", "accent_subtle", "success", "warning", "danger", "info" };
+static const char *const dsg_spinner_names[] = { "arc", "comet", "dot_matrix", "radar", "ripple", "orbit", "bounce", "pulse" };
+static const cui_spinner_style dsg_spinner_styles[] = { CUI_SPINNER_ARC, CUI_SPINNER_COMET, CUI_SPINNER_DOT_MATRIX, CUI_SPINNER_RADAR,
+                                                        CUI_SPINNER_RIPPLE, CUI_SPINNER_ORBIT, CUI_SPINNER_BOUNCE, CUI_SPINNER_PULSE };
+static const char *const dsg_status_names[] = { "", "online", "busy", "away", "offline" };
 #define DSG_ENUM(n, key, names) dsg_enum((n), (key), (names), (int)(sizeof(names) / sizeof(names[0])))
+
+/* A theme color by its name in media/components.js; zero (the component's default) for none. */
+static cui_color dsg_color(const dsg_node *n, const char *key) {
+    static const cui_color colors[] = { { 0, 0, 0, 0 }, CUI_COLOR_BACKGROUND, CUI_COLOR_SURFACE, CUI_COLOR_SURFACE_MUTED, CUI_COLOR_FOREGROUND,
+                                        CUI_COLOR_TEXT_SECONDARY, CUI_COLOR_TEXT_MUTED, CUI_COLOR_BORDER, CUI_COLOR_ACCENT, CUI_COLOR_ACCENT_SUBTLE,
+                                        CUI_COLOR_SUCCESS, CUI_COLOR_WARNING, CUI_COLOR_DANGER, CUI_COLOR_INFO };
+    return colors[DSG_ENUM(n, key, dsg_color_names)];
+}
 
 static void dsg_event(int i) {
     if (dsg_event_count < DSG_MAX_EVENTS) dsg_events[dsg_event_count++] = i;
 }
+
+/* The controls with a state need an id; the generated code uses the same one. */
+static const char *dsg_id(const dsg_node *n) { return dsg_str(n, "bind"); }
 
 static void dsg_build_node(cui_ctx *ui, int i);
 static void dsg_build_children(cui_ctx *ui, const dsg_node *n) {
@@ -209,6 +253,9 @@ static cui_box dsg_box_opts(const dsg_node *n) {
     b.align = (cui_align)DSG_ENUM(n, "align", dsg_align_names);
     b.justify = (cui_justify)DSG_ENUM(n, "justify", dsg_justify_names);
     b.wrap = dsg_flag(n, "wrap");
+    b.bg = dsg_color(n, "bg");
+    b.border = dsg_num(n, "border", 0);
+    b.radius = dsg_num(n, "radius", 0);
     if (n->kind == DSG_GRID) {
         b.dir = CUI_GRID;
         b.columns = (int)dsg_num(n, "columns", 0);
@@ -218,7 +265,52 @@ static cui_box dsg_box_opts(const dsg_node *n) {
     return b;
 }
 
-static void dsg_build_container(cui_ctx *ui, const dsg_node *n) {
+/* An empty container in design mode: room to drop into. */
+static void dsg_drop_room(cui_ctx *ui, const dsg_node *n) {
+    if (dsg_design_mode && n->first < 0) cui_gap(ui, 40);
+}
+
+static void dsg_build_container(cui_ctx *ui, dsg_node *n) {
+    if (n->kind == DSG_SCROLL) {
+        cui_scroll_opts o = { 0 };
+        o.width = dsg_size(n, "width");
+        o.height = dsg_size(n, "height");
+        o.pad = dsg_num(n, "pad", 0);
+        o.gap = dsg_num(n, "gap", 0);
+        o.fade_edges = dsg_flag(n, "fade_edges");
+        cui_scroll_begin(ui, &o);
+        dsg_drop_room(ui, n);
+        dsg_build_children(ui, n);
+        cui_scroll_end(ui);
+        return;
+    }
+    if (n->kind == DSG_ACCORDION) {
+        bool was = n->on;
+        if (cui_accordion_begin(ui, dsg_str(n, "title"), &n->on)) {
+            dsg_drop_room(ui, n);
+            dsg_build_children(ui, n);
+            cui_accordion_end(ui);
+        }
+        if (n->on != was) dsg_event((int)(n - dsg_nodes));
+        return;
+    }
+    if (n->kind == DSG_SPLIT) {
+        cui_split_opts o = { 0 };
+        o.vertical = dsg_flag(n, "vertical");
+        o.min_first = dsg_num(n, "min_first", 0);
+        o.min_second = dsg_num(n, "min_second", 0);
+        o.width = dsg_size(n, "width");
+        o.height = dsg_size(n, "height");
+        float was = n->value;
+        cui_split_begin(ui, dsg_id(n), &n->value, &o);
+        if (n->first >= 0) dsg_build_node(ui, n->first);
+        else dsg_drop_room(ui, n);
+        cui_split_next(ui);
+        for (int c = n->first >= 0 ? dsg_nodes[n->first].next : -1; c >= 0; c = dsg_nodes[c].next) dsg_build_node(ui, c);
+        cui_split_end(ui);
+        if (n->value != was) dsg_event((int)(n - dsg_nodes));
+        return;
+    }
     if (n->kind == DSG_CARD) {
         cui_card_opts o = { 0 };
         o.width = dsg_size(n, "width");
@@ -231,7 +323,7 @@ static void dsg_build_container(cui_ctx *ui, const dsg_node *n) {
         o.hoverable = dsg_flag(n, "hoverable");
         if (dsg_design_mode && n->first < 0) o.min_width = 96;
         cui_card_begin(ui, &o);
-        if (dsg_design_mode && n->first < 0) cui_gap(ui, 40);
+        dsg_drop_room(ui, n);
         dsg_build_children(ui, n);
         cui_card_end(ui);
         return;
@@ -244,8 +336,6 @@ static void dsg_build_container(cui_ctx *ui, const dsg_node *n) {
     cui_box_end(ui);
 }
 
-/* The text controls and lists need an id; the generated code uses the same one. */
-static const char *dsg_id(const dsg_node *n) { return dsg_str(n, "bind"); }
 
 static void dsg_build_control(cui_ctx *ui, int i) {
     dsg_node *n = &dsg_nodes[i];
@@ -258,6 +348,13 @@ static void dsg_build_control(cui_ctx *ui, int i) {
         else if (strcmp(style, "muted") == 0) cui_muted(ui, t);
         else if (strcmp(style, "code") == 0) cui_code(ui, t);
         else cui_text(ui, t);
+        break;
+    }
+    case DSG_LINK: if (cui_link(ui, dsg_str(n, "text"))) dsg_event(i); break;
+    case DSG_KBD: cui_kbd(ui, dsg_str(n, "text")); break;
+    case DSG_ICON: {
+        const char *g = dsg_icon_glyph(n, "icon");
+        cui_icon(ui, g ? g : CUI_ICON_STAR, dsg_num(n, "size", 0), dsg_color(n, "color"));
         break;
     }
     case DSG_BUTTON:
@@ -346,6 +443,93 @@ static void dsg_build_control(cui_ctx *ui, int i) {
     case DSG_RADIO_GROUP:
         if (cui_radio_group(ui, dsg_id(n), n->items, n->item_count, &n->index)) dsg_event(i);
         break;
+    case DSG_SEARCH: {
+        cui_input_opts o = { 0 };
+        o.placeholder = dsg_opt(n, "placeholder");
+        o.disabled = dsg_flag(n, "disabled");
+        o.width = dsg_size(n, "width");
+        if (cui_search_ex(ui, dsg_id(n), n->text, sizeof n->text, &o) & CUI_SUBMITTED) dsg_event(i);
+        break;
+    }
+    case DSG_NUMBER: {
+        cui_number_opts o = { 0 };
+        o.label = dsg_opt(n, "label");
+        o.step = dsg_num(n, "step", 0);
+        o.decimals = (int)dsg_num(n, "decimals", 0);
+        o.suffix = dsg_opt(n, "suffix");
+        o.disabled = dsg_flag(n, "disabled");
+        o.width = dsg_size(n, "width");
+        if (cui_number_ex(ui, dsg_id(n), &n->number, dsg_num(n, "min", 0), dsg_num(n, "max", 100), &o)) dsg_event(i);
+        break;
+    }
+    case DSG_CHIP: {
+        cui_chip_opts o = { 0 };
+        o.icon = dsg_icon_glyph(n, "icon");
+        o.disabled = dsg_flag(n, "disabled");
+        if (cui_chip_ex(ui, dsg_str(n, "label"), &n->on, &o)) dsg_event(i);
+        break;
+    }
+    case DSG_RATING: if (cui_rating(ui, dsg_id(n), &n->index, (int)dsg_num(n, "max", 5))) dsg_event(i); break;
+    case DSG_RANGE_SLIDER:
+        if (cui_range_slider(ui, dsg_str(n, "label"), &n->value, &n->high, dsg_num(n, "min", 0), dsg_num(n, "max", 100))) dsg_event(i);
+        break;
+    case DSG_DATE_PICKER: {
+        cui_date_opts o = { 0 };
+        o.label = dsg_opt(n, "label");
+        o.placeholder = dsg_opt(n, "placeholder");
+        o.width = dsg_size(n, "width");
+        if (cui_date_picker_ex(ui, dsg_id(n), &n->date, &o)) dsg_event(i);
+        break;
+    }
+    case DSG_NAV_SECTION: cui_nav_section(ui, dsg_str(n, "title")); break;
+    case DSG_NAV_ITEM: {
+        cui_nav_opts o = { 0 };
+        o.icon = dsg_icon_glyph(n, "icon");
+        o.badge = dsg_opt(n, "badge");
+        o.selected = dsg_flag(n, "selected");
+        o.group = dsg_opt(n, "group");
+        if (cui_nav_item_ex(ui, dsg_str(n, "label"), &o)) dsg_event(i);
+        break;
+    }
+    case DSG_BREADCRUMB: if (cui_breadcrumb(ui, n->items, n->item_count) >= 0) dsg_event(i); break;
+    case DSG_PAGINATION: if (cui_pagination(ui, dsg_id(n), &n->index, (int)dsg_num(n, "count", 1))) dsg_event(i); break;
+    case DSG_STEPPER: cui_stepper(ui, n->items, n->item_count, (int)dsg_num(n, "current", 0)); break;
+    case DSG_SPINNER: {
+        cui_spinner_opts o = { 0 };
+        o.style = dsg_spinner_styles[DSG_ENUM(n, "style", dsg_spinner_names)];
+        o.color = dsg_color(n, "color");
+        cui_spinner_ex(ui, dsg_num(n, "size", 0), &o);
+        break;
+    }
+    case DSG_SKELETON: cui_skeleton(ui, dsg_size(n, "width"), dsg_num(n, "height", 0)); break;
+    case DSG_EMPTY_STATE: {
+        cui_empty_opts o = { 0 };
+        o.icon = dsg_icon_glyph(n, "icon");
+        o.description = dsg_opt(n, "description");
+        o.action = dsg_opt(n, "action");
+        if (cui_empty_state_ex(ui, dsg_str(n, "title"), &o)) dsg_event(i);
+        break;
+    }
+    case DSG_AVATAR: {
+        cui_avatar_opts o = { 0 };
+        o.size = dsg_num(n, "size", 0);
+        int st = DSG_ENUM(n, "status", dsg_status_names);
+        o.status = st ? dsg_status_names[st] : NULL;
+        o.square = dsg_flag(n, "square");
+        cui_avatar_ex(ui, dsg_str(n, "name"), &o);
+        break;
+    }
+    case DSG_LIST_ITEM: {
+        cui_list_item_opts o = { 0 };
+        o.icon = dsg_icon_glyph(n, "icon");
+        o.subtitle = dsg_opt(n, "subtitle");
+        o.trailing = dsg_opt(n, "trailing");
+        o.avatar = dsg_opt(n, "avatar");
+        o.selected = dsg_flag(n, "selected");
+        if (cui_list_item_ex(ui, dsg_str(n, "title"), &o)) dsg_event(i);
+        break;
+    }
+    case DSG_METER: cui_meter(ui, dsg_str(n, "label"), dsg_num(n, "used", 0), dsg_num(n, "total", 0), dsg_str(n, "unit")); break;
     case DSG_PROGRESS: {
         cui_progress_opts o = { 0 };
         o.tone = (cui_tone)DSG_ENUM(n, "tone", dsg_tone_names);
@@ -380,7 +564,7 @@ static void dsg_build_control(cui_ctx *ui, int i) {
 static void dsg_build_node(cui_ctx *ui, int i) {
     dsg_node *n = &dsg_nodes[i];
     int first = ui->node_count;
-    if (n->kind <= DSG_CARD) dsg_build_container(ui, n);
+    if (dsg_is_container(n->kind)) dsg_build_container(ui, n);
     else dsg_build_control(ui, i);
     n->ui_node = ui->node_count > first ? first : -1;
 }
