@@ -13,10 +13,9 @@ const TYPES = { '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'te
 
 const bootstrap = `<script>
 window.cuiDevEdits = [];
+// the extension's global state for the panel layout: this browser's localStorage
+try { window.cuiPrefs = JSON.parse(localStorage.getItem('cuiDesignerPrefs')); } catch (e) { window.cuiPrefs = null; }
 window.cuiDevHost = {
-  state: undefined,
-  getState() { return this.state; },
-  setState(s) { this.state = s; },
   postMessage(m) {
     const q = new URLSearchParams(location.search), design = q.get('design') || '${design}';
     if (m.type === 'ready') fetch('/' + design).then((r) => r.text()).then((text) => {
@@ -27,6 +26,7 @@ window.cuiDevHost = {
         if (q.get('tab')) document.querySelector('[data-tab="' + q.get('tab') + '"]').click();
       }, 100);
     });
+    else if (m.type === 'prefs') { try { localStorage.setItem('cuiDesignerPrefs', JSON.stringify(m.prefs)); } catch (e) { /* private window */ } }
     else if (m.type === 'edit') { window.cuiDevEdits.push(m.text); console.log('[edit]', m.text.length, 'bytes'); }
     else console.log('[host]', JSON.stringify(m));
   },

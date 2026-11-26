@@ -11,7 +11,8 @@ common components, not all of CUI.
 
 ## What it does
 
-- **Palette**: 50 kinds in eight groups. A click on a group's heading folds it, and the palette scrolls on its own above the outline. Drag a component onto the preview, or click it to add it after the selection.
+- **Palette**: 50 kinds in eight groups. A click on a group's heading folds it. Drag a component onto the preview, or click it to add it after the selection.
+- **Panels**: the palette, the outline and the properties sit in columns beside the preview. Drag the lines between them to change widths and heights (a double-click on a column's line gives its default width). Drag a panel by its header (the dots, for the properties) to another place in a column, to a column's edge for a new column there, or to the outer quarter of the preview for a new column on that side. VS Code keeps the layout and the folded groups for every design.
   - *Layout*: column, row and grid (with a theme background, border and radius), scroll area, accordion, split view (the first child is the first pane), card, separator, spacer.
   - *Overlays*: dialog, dialog footer (the dialog's button row) and sheet. A dialog shows in the designer while it or something in it is selected; in *Try it* and in the app it opens when its state field is true. A button, icon button or link opens or closes one with its *Opens* and *Closes* properties.
   - *Text*: heading, text, link, key cap, icon.
@@ -105,6 +106,7 @@ for the VS Code API (`?design=samples/settings.cui.json` loads another design).
 | `media/components.js` | The components, their properties and the C option each property sets. The palette, the property panel and the code generator read it. |
 | `media/codegen.js` | The C generator. It runs in the extension (on save) and in the webview (the *C code* tab). |
 | `media/designer.js` | The webview: palette, outline, overlay, drag and drop, property panel and input for *Try it*. |
+| `media/layout.js` | The panels' columns: the splitters and moving a panel by its header. |
 | `extension.js` | The custom editor for `*.cui.json`, the commands, and writing the C files on save. |
 
 `native/designer.c` and `media/codegen.js` make the same calls with the same

@@ -1,9 +1,10 @@
 // The designer webview: a palette, an outline, the live preview (CUI in
 // WebAssembly, native/designer.c) with selection and drag and drop on top of
-// it, and a property panel. The document is the *.cui.json text that VS Code
+// it, and a property panel (the panels' columns are layout.js's). The document is the *.cui.json text that VS Code
 // holds; every change is sent back to it as a whole, so undo, save and dirty
 // state are VS Code's.
 import { loadModule } from './runtime.js';
+import { initLayout } from './layout.js';
 
 const { list: COMPONENTS, byType, groups: GROUPS } = window.CuiComponents;
 const { resolveNames, generate, isIdent, walk } = window.CuiCodegen;
@@ -471,13 +472,14 @@ const hint = () => 'Drag components from the palette onto the preview, or click 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 function status(html) { $('#status').innerHTML = html; }
 
-// Palette groups fold with a click on their heading; which ones are folded is
-// kept in the webview state, so it survives hiding and reopening the editor.
-const viewState = () => (host.getState && host.getState()) || {};
-function setViewState(change) { if (host.setState) host.setState({ ...viewState(), ...change }); }
+// Palette groups fold with a click on their heading. The folded groups and the
+// panel layout are the extension's to keep (window.cuiPrefs brings them in), so
+// every designer opens the way the last one was left.
+const prefs = { folded: [], ...(window.cuiPrefs || {}) };
+const savePrefs = () => host.postMessage({ type: 'prefs', prefs });
 
 function renderPalette() {
-  const p = $('#palette'), folded = new Set(viewState().folded || []);
+  const p = $('#palette'), folded = new Set(prefs.folded);
   for (const g of GROUPS) {
     const items = COMPONENTS.filter((c) => c.group === g);
     const box = el('div', { class: 'pal-group' + (folded.has(g) ? ' folded' : '') });
@@ -485,7 +487,8 @@ function renderPalette() {
                                 onclick: () => {
                                   const nowFolded = box.classList.toggle('folded');
                                   head.setAttribute('aria-expanded', String(!nowFolded));
-                                  setViewState({ folded: [...p.querySelectorAll('.pal-group.folded')].map((b) => b.dataset.group) });
+                                  prefs.folded = [...p.querySelectorAll('.pal-group.folded')].map((b) => b.dataset.group);
+                                  savePrefs();
                                 } },
                     g, el('span', { class: 'count' }, String(items.length)));
     box.dataset.group = g;
@@ -625,6 +628,7 @@ window.addEventListener('message', (e) => {
 });
 
 async function main() {
+  initLayout(prefs, savePrefs);
   renderPalette();
   bindToolbar();
   try {

@@ -9,16 +9,17 @@
 </head>
 <body data-wasm="{{media}}/designer.wasm">
 <div id="app">
-  <aside id="left">
-    <section>
-      <h2>Components</h2>
+  <!-- the panels start in their default places; media/layout.js moves them into columns -->
+  <div class="dock" id="dock-left">
+    <section class="panel" data-panel="components" data-title="Components">
+      <header class="panel-head" title="Drag to move the panel"><span class="grip"></span><h2>Components</h2></header>
       <div id="palette"></div>
     </section>
-    <section class="grow">
-      <h2>Outline</h2>
+    <section class="panel" data-panel="outline" data-title="Outline">
+      <header class="panel-head" title="Drag to move the panel"><span class="grip"></span><h2>Outline</h2></header>
       <div id="outline" role="tree"></div>
     </section>
-  </aside>
+  </div>
   <main id="center">
     <div id="toolbar">
       <div class="seg" role="radiogroup" aria-label="Mode">
@@ -43,16 +44,22 @@
     </div>
     <div id="status"></div>
   </main>
-  <aside id="right">
-    <div class="tabs" role="tablist">
-      <button data-tab="props" class="on">Properties</button>
-      <button data-tab="code">C code</button>
-    </div>
-    <div id="props"></div>
-    <pre id="code" hidden></pre>
-  </aside>
+  <div class="dock" id="dock-right">
+    <section class="panel" data-panel="inspector" data-title="Properties and C code">
+      <header class="panel-head">
+        <span class="grip" title="Drag to move the panel"></span>
+        <div class="tabs" role="tablist">
+          <button data-tab="props" class="on">Properties</button>
+          <button data-tab="code">C code</button>
+        </div>
+      </header>
+      <div id="props"></div>
+      <pre id="code" hidden></pre>
+    </section>
+  </div>
 </div>
 <div id="ghost" hidden></div>
+<div id="dock-hint" hidden></div>
 <datalist id="icons"></datalist>
 <datalist id="sizes"><option value="fit"><option value="fill"><option value="200"><option value="50%"></datalist>
 {{bootstrap}}

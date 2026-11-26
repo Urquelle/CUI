@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const { generate, newDocument } = require('./media/codegen.js');
 
 const VIEW_TYPE = 'cui.designer';
+const PREFS_KEY = 'cuiDesigner.prefs';   // the panel layout and the folded palette groups, the same for every design
 const baseNameOf = (uri) => path.basename(uri.fsPath).replace(/\.cui\.json$/i, '');
 
 // Writes <name>.ui.h and <name>.ui.c next to the design.
@@ -55,6 +56,8 @@ class DesignerProvider {
           const edit = new vscode.WorkspaceEdit();
           edit.replace(document.uri, new vscode.Range(0, 0, document.lineCount, 0), m.text);
           await vscode.workspace.applyEdit(edit);
+        } else if (m.type === 'prefs') {
+          if (m.prefs && typeof m.prefs === 'object') this.context.globalState.update(PREFS_KEY, m.prefs);
         } else if (m.type === 'generate') writeCode(document, true);
         else if (m.type === 'error') vscode.window.showErrorMessage(m.message);
       }),
@@ -68,9 +71,10 @@ class DesignerProvider {
     const csp = `default-src 'none'; img-src ${src} data:; style-src ${src} 'unsafe-inline'; font-src ${src}; ` +
                 `connect-src ${src}; script-src 'nonce-${nonce}' 'wasm-unsafe-eval' ${src};`;
     const template = fs.readFileSync(path.join(media.fsPath, 'designer.html'), 'utf8');
+    const prefs = JSON.stringify(this.context.globalState.get(PREFS_KEY) ?? null).replace(/</g, '\\u003c');
     return template
       .replace('{{cspMeta}}', `<meta http-equiv="Content-Security-Policy" content="${csp}">`)
-      .replace('{{bootstrap}}', '')
+      .replace('{{bootstrap}}', () => `<script nonce="${nonce}">window.cuiPrefs = ${prefs};</script>`)
       .replaceAll('{{nonce}}', nonce)
       .replaceAll('{{media}}', webview.asWebviewUri(media).toString());
   }

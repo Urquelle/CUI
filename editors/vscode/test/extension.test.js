@@ -49,7 +49,10 @@ Module._load = function (req, ...rest) { return req === 'vscode' ? vscode : load
 (async () => {
   const ext = require('../extension.js');
   const subs = [];
-  ext.activate({ extensionUri: Uri.file(HERE), subscriptions: subs });
+  const globalState = new Map();
+  const context = { extensionUri: Uri.file(HERE), subscriptions: subs,
+                    globalState: { get: (k) => globalState.get(k), update: async (k, v) => { globalState.set(k, v); } } };
+  ext.activate(context);
   assert.ok(registered['cui.designer'] && registered['cui.designer.new'] && registered['cui.designer.generate'], 'provider and commands registered');
 
   // the webview
@@ -73,6 +76,7 @@ Module._load = function (req, ...rest) { return req === 'vscode' ? vscode : load
   assert.doesNotMatch(html, /\{\{/, 'every placeholder is filled');
   const nonce = /nonce-([^']+)'/.exec(html)[1];
   for (const s of html.match(/<script[^>]*>/g)) assert.ok(s.includes(`nonce="${nonce}"`), 'every script carries the nonce: ' + s);
+  assert.match(html, /window\.cuiPrefs = null;/, 'no layout kept yet');
   assert.deepStrictEqual(panel.webview.options.localResourceRoots.map((u) => path.basename(u.fsPath)), ['media']);
 
   await onMessage({ type: 'ready' });
@@ -106,6 +110,13 @@ Module._load = function (req, ...rest) { return req === 'vscode' ? vscode : load
   await registered['cui.designer.new'](Uri.file(tmp));
   const created = JSON.parse(fs.readFileSync(path.join(tmp, 'dashboard.cui.json'), 'utf8'));
   assert.strictEqual(created.name, 'dashboard');
+  // the panel layout is kept for the next designer, safely inside its script
+  const prefs = { folded: ['Layout'], layout: { left: [], right: [{ width: 300, panels: [{ id: 'inspector', grow: 1 }] }] }, note: '</script>' };
+  await onMessage({ type: 'prefs', prefs });
+  const next = registered['cui.designer'].html(panel.webview, Uri.file(path.join(HERE, 'media')));
+  const kept = /window\.cuiPrefs = (.*);<\/script>/.exec(next);
+  assert.ok(kept && !kept[1].includes('</'), 'the prefs cannot end the script early');
+  assert.deepStrictEqual(JSON.parse(kept[1]), prefs);
   onDispose();
-  console.log('ok   extension: activation, webview HTML and CSP, edits both ways, generate on save, new design');
+  console.log('ok   extension: activation, webview HTML and CSP, edits both ways, generate on save, new design, kept layout');
 })().catch((e) => { console.error('FAIL', e); process.exit(1); });
