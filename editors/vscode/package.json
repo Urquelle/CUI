@@ -2,7 +2,7 @@
   "name": "cui-designer",
   "displayName": "CUI Designer",
   "description": "Unofficial preview: put CUI interfaces together with the mouse and generate the C code that builds them.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "UrquelleVSCodeMarketplace",
   "license": "MIT",
   "icon": "icon.png",
@@ -45,7 +45,7 @@
   },
   "scripts": {
     "build": "bash build.sh",
-    "package": "npx --yes @vscode/vsce package --baseContentUrl https://github.com/Urquelle/CUI/blob/feature/vscode-designer/editors/vscode --baseImagesUrl https://github.com/Urquelle/CUI/raw/feature/vscode-designer/editors/vscode",
+    "package": "npx --yes @vscode/vsce package",
     "test": "node test/codegen.test.js && node --no-warnings test/fidelity.mjs && node test/extension.test.js && node --no-warnings test/smoke.mjs"
   }
 }
