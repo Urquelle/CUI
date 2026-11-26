@@ -1,0 +1,57 @@
+name: PR guard
+
+# Lists what a change adds that needs a careful look, with tools/check_pr.py:
+# characters that hide text or change its direction, secrets and session links,
+# binary files, symbolic links and submodules, and changes to the build, CI,
+# release and site machinery. On a pull request anything it finds fails the
+# check; on master only what must not land fails, and the rest are warnings.
+#
+# Pull requests run on pull_request_target so that a pull request cannot change
+# this workflow or the checker to pass itself: both come from master. That
+# trigger runs with this repository's permissions, so this job must never check
+# out, build or run a pull request's code. It only fetches the commits and reads
+# them with git; checkout@v7 also refuses to check out a fork's code here.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-guard-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    name: Changes that need a careful look
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fetch the pull request's commits, as data only
+        if: github.event_name == 'pull_request_target'
+        env:
+          PR: ${{ github.event.pull_request.number }}
+        run: git fetch --no-tags origin "+refs/pull/${PR}/head:refs/remotes/pr/head"
+      - name: Check the pull request
+        if: github.event_name == 'pull_request_target'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: python3 -I tools/check_pr.py "$BASE" refs/remotes/pr/head --strict --github
+      - name: Check the push
+        if: github.event_name == 'push'
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            python3 -I tools/check_pr.py "$BEFORE" "$GITHUB_SHA" --github
+          else
+            echo "the commit before this push is not in the history (a new branch or a force-push): nothing to compare"
+          fi

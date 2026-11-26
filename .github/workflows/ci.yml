@@ -129,6 +129,15 @@ jobs:
           ${{ matrix.cc }} $W -Idist -c dist/impl.c -o dist/impl-win.o
           ${{ matrix.cc }} $W -Idist -DCUI_TEXT_SHAPING -c dist/cui.c -o dist/shaping-win.o
 
+  pr-guard-test:
+    name: PR guard self-test
+    timeout-minutes: 10
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check that tools/check_pr.py finds what it should
+        run: python3 tools/test_check_pr.py
+
   first-steps:
     name: First steps, as the guide gives them
     timeout-minutes: 45

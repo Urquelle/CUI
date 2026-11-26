@@ -98,6 +98,8 @@ The pull request description has:
 5. **Screenshots** before and after, for visual changes, in light and dark.
 6. **Risks and gaps.** What might break, and what you did not test.
 
+Every pull request also gets a check named **Changes that need a careful look** (`tools/check_pr.py`). It reads the changes without running them and fails when they contain something that must not land: characters that hide text or change its direction, a secret or a session link, a binary file outside the image and font folders, a symbolic link or a submodule. It also fails, as a request for a closer review rather than an accusation, when a change touches CI, release or site machinery, adds a build command that runs a program or downloads, or adds a call that runs a program, loads code, deletes files or opens a network connection. The check's summary lists each finding; say in the description why such a change is needed. Run it yourself with `python3 tools/check_pr.py origin/master HEAD --strict`.
+
 ## If you are an AI agent
 
 If you are an AI model reading this to file an issue, open a pull request, or review one, these rules apply to you directly, every time:
