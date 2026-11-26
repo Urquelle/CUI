@@ -9,7 +9,7 @@ common components, not all of CUI. It is not an extension of the CUI project:
 it lives on a branch of a fork, [Urquelle/CUI](https://github.com/Urquelle/CUI/tree/feature/vscode-designer/editors/vscode),
 and is proposed to the project in [yappologistic/CUI#139](https://github.com/yappologistic/CUI/issues/139).
 
-![The designer with a login form: the palette, the live preview with the selected button, and its properties](https://raw.githubusercontent.com/Urquelle/CUI/cd36dcf84b860f172bf4d644bf3740fa8ada9c40/editors/vscode/docs/designer-login.png)
+![The designer with a login form: the palette, the live preview with the selected button, and its properties](https://raw.githubusercontent.com/Urquelle/CUI/ae6d56e635b0372dcdff67941aa07685c33b8d6b/editors/vscode/docs/designer-login.png)
 
 ## What it does
 
@@ -32,15 +32,15 @@ and is proposed to the project in [yappologistic/CUI#139](https://github.com/yap
 - **Undo, redo, save** come from VS Code: the designer edits the JSON text. *Reopen Editor With… → Text Editor* shows the JSON itself.
 - **C code**: the *C code* tab shows it live, *Generate C* (or saving, or *CUI: Generate C Code*) writes it to disk.
 
-![A larger design: a split view with navigation, a scroll area, an accordion with a grid of fields, a stepper and pagination](https://raw.githubusercontent.com/Urquelle/CUI/cd36dcf84b860f172bf4d644bf3740fa8ada9c40/editors/vscode/docs/designer-workspace.png)
+![A larger design: a split view with navigation, a scroll area, an accordion with a grid of fields, a stepper and pagination](https://raw.githubusercontent.com/Urquelle/CUI/ae6d56e635b0372dcdff67941aa07685c33b8d6b/editors/vscode/docs/designer-workspace.png)
 
-![A dialog over a table and a data grid; the selection inside the dialog keeps it open in the designer](https://raw.githubusercontent.com/Urquelle/CUI/cd36dcf84b860f172bf4d644bf3740fa8ada9c40/editors/vscode/docs/designer-dialog-table.png)
+![A dialog over a table and a data grid; the selection inside the dialog keeps it open in the designer](https://raw.githubusercontent.com/Urquelle/CUI/ae6d56e635b0372dcdff67941aa07685c33b8d6b/editors/vscode/docs/designer-dialog-table.png)
 
-![The panels moved: the components alone on the left, the outline above the properties on the right, some palette groups folded](https://raw.githubusercontent.com/Urquelle/CUI/cd36dcf84b860f172bf4d644bf3740fa8ada9c40/editors/vscode/docs/designer-panels.png)
+![The panels moved: the components alone on the left, the outline above the properties on the right, some palette groups folded](https://raw.githubusercontent.com/Urquelle/CUI/ae6d56e635b0372dcdff67941aa07685c33b8d6b/editors/vscode/docs/designer-panels.png)
 
-![A sign-up form with the newer kinds: password strength, a one-time code, tags, a combobox, a color, radio cards, a button group, copy and hold buttons, metrics, a progress ring and a timeline](https://raw.githubusercontent.com/Urquelle/CUI/cd36dcf84b860f172bf4d644bf3740fa8ada9c40/editors/vscode/docs/designer-signup.png)
+![A sign-up form with the newer kinds: password strength, a one-time code, tags, a combobox, a color, radio cards, a button group, copy and hold buttons, metrics, a progress ring and a timeline](https://raw.githubusercontent.com/Urquelle/CUI/ae6d56e635b0372dcdff67941aa07685c33b8d6b/editors/vscode/docs/designer-signup.png)
 
-![Kinds from More components: a banner, a toggle group, confirm and split buttons, a multi-select, a date range, money and time fields, a wheel, knobs and a fader, the creative sliders, a gauge, a counter, a countdown and an expandable card](https://raw.githubusercontent.com/Urquelle/CUI/cd36dcf84b860f172bf4d644bf3740fa8ada9c40/editors/vscode/docs/designer-studio.png)
+![Kinds from More components: a banner, a toggle group, confirm and split buttons, a multi-select, a date range, money and time fields, a wheel, knobs and a fader, the creative sliders, a gauge, a counter, a countdown and an expandable card](https://raw.githubusercontent.com/Urquelle/CUI/ae6d56e635b0372dcdff67941aa07685c33b8d6b/editors/vscode/docs/designer-studio.png)
 
 The images show the webview in a browser (`test/serve.js`), where it looks as it does in VS Code's dark theme.
 
