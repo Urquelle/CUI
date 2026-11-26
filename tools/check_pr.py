@@ -17,7 +17,8 @@ Two kinds of findings:
           site machinery, build commands that run programs or download, and
           instructions for AI agents; new calls that run programs, load code,
           delete files or open network connections; downloads and shell tricks
-          in scripts; long encoded strings and large files.
+          in scripts; text that talks to an AI reviewer; long encoded strings
+          and large files.
 
 Exits with 1 when there is a block finding, or with --strict a review finding.
 --github also writes GitHub annotations and a job summary. Findings never quote
@@ -58,6 +59,23 @@ PRIVATE_LINKS = [
     (r"chatgpt\.com/(c|share|g)/[^\s)\]>\"']+", "a link to a ChatGPT conversation"),
     (r"docs\.google\.com/[^\s)\]>\"']+/edit", "a link to a private document"),
 ]
+
+# Text that talks to an AI reviewer or agent: a pull request can hide orders for
+# the bot that reviews it, telling it to drop its rules and let the change pass.
+AI_DIRECTED = [
+    r"\b(ignore|disregard|forget|override)\b[^.\n]{0,40}\b(previous|prior|above|earlier|all|your|system)\b[^.\n]{0,20}\b(instructions?|prompts?|rules|guidelines)\b",
+    r"\b(AI|LLM|automated|language[- ]model)\s+(reviewers?|agents?|assistants?|models?|tools?)\b[^.\n]{0,60}\b(approve|merge|accept|ignore|skip|overlook)\b",
+    r"\b(new|updated|hidden|secret) instructions\b|\bsystem\s+prompt\b|\bdeveloper\s+mode\b|\bjail\s*break",
+    r"<\|im_(start|end)\|>|\[/?INST\]|<</?SYS>>|</?(system|assistant)_?(prompt)?>",
+    r"\b(approve|merge|accept) (this|the) (PR|pull request|change|patch)\b",
+    r"\b(do not|don't|never) (mention|report|flag|disclose|reveal) (this|that|it|the)\b",
+    r"\bas\s+an\s+AI\b|\byou are (now )?(an? |the )?(AI|assistant|language model|LLM)\b",
+]
+
+
+def ai_directed(text):
+    return any(re.search(pat, text, re.I) for pat in AI_DIRECTED)
+
 
 CODE_EXT = (".c", ".h", ".m", ".mm", ".cpp", ".cc", ".inc", ".java", ".kt", ".swift")
 RISKY_CALLS = [
@@ -134,6 +152,8 @@ def check_text(report, path, line, text, where_code, where_script, blob_ok):
     for pat, what in PRIVATE_LINKS:
         if re.search(pat, text):
             report.add("block", path, line, "contains " + what)
+    if ai_directed(text):
+        report.add("review", path, line, "text addressed to an AI reviewer or agent: check that it does not try to steer the review")
     if where_code:
         for pat, what in RISKY_CALLS:
             m = re.search(pat, text)

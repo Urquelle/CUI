@@ -1,0 +1,54 @@
+name: PR description
+
+# Checks that a pull request's description has what docs/CONTRIBUTING.md asks of
+# every pull request, with tools/check_pr_description.py: the disclosure block
+# filled in and test output pasted. When something is missing the check fails,
+# its summary lists what, and the pull request gets the "needs evidence" label;
+# once the description is complete the check passes and the label comes off.
+#
+# It runs on pull_request_target so that it may label pull requests from forks.
+# The description is untrusted text: it reaches the checker only through an
+# environment variable, never through the script itself, and no pull request
+# code is checked out or run.
+
+on:
+  pull_request_target:
+    types: [opened, edited, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: pr-description-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  description:
+    name: Disclosure and test evidence
+    if: github.event.pull_request.user.type != 'Bot'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Check the description
+        id: check
+        continue-on-error: true
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: python3 -I tools/check_pr_description.py --github
+      - name: Label the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          OUTCOME: ${{ steps.check.outcome }}
+        run: |
+          if [ "$OUTCOME" = success ]; then
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/issues/${PR}/labels/needs%20evidence" > /dev/null 2>&1 || true
+          else
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${PR}/labels" -f "labels[]=needs evidence" > /dev/null
+            echo "the description is missing what the summary lists"
+            exit 1
+          fi
