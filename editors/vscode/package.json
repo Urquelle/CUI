@@ -1,0 +1,47 @@
+{
+  "name": "cui-designer",
+  "displayName": "CUI Designer",
+  "description": "Put CUI interfaces together with the mouse and generate the C code that builds them.",
+  "version": "0.1.0",
+  "publisher": "cui",
+  "license": "MIT",
+  "private": true,
+  "engines": { "vscode": "^1.75.0" },
+  "categories": ["Visualization", "Other"],
+  "main": "./extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "cui.designer",
+        "displayName": "CUI Designer",
+        "selector": [{ "filenamePattern": "*.cui.json" }],
+        "priority": "default"
+      }
+    ],
+    "commands": [
+      { "command": "cui.designer.new", "title": "New Design", "category": "CUI" },
+      { "command": "cui.designer.generate", "title": "Generate C Code", "category": "CUI" }
+    ],
+    "menus": {
+      "explorer/context": [
+        { "command": "cui.designer.new", "when": "explorerResourceIsFolder", "group": "navigation@9" },
+        { "command": "cui.designer.generate", "when": "resourceFilename =~ /\\.cui\\.json$/", "group": "navigation@9" }
+      ]
+    },
+    "configuration": {
+      "title": "CUI Designer",
+      "properties": {
+        "cuiDesigner.generateOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Write <name>.ui.h and <name>.ui.c next to a design whenever it is saved."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "bash build.sh",
+    "test": "node test/codegen.test.js && node --no-warnings test/fidelity.mjs && node test/extension.test.js && node --no-warnings test/smoke.mjs"
+  }
+}

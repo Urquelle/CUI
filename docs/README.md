@@ -18,6 +18,6 @@
 16. [How CUI is built](architecture.md): the frame lifecycle and where things live, for people changing the library
 17. [Contributing](CONTRIBUTING.md): reporting issues and submitting changes, for people and AI agents
 
-To browse this guide with every component running live, run `web/tools/serve.sh` (see [`web/README.md`](../web/README.md)).
+To browse this guide with every component running live, run `web/tools/serve.sh` (see [`web/README.md`](../web/README.md)). To put a UI together with the mouse and generate its C code, there is a prototype designer for VS Code in [`editors/vscode`](../editors/vscode/README.md).
 
 The API itself is documented inline in [`include/cui/cui.h`](../include/cui/cui.h), [`cui_app.h`](../include/cui/cui_app.h) and [`cui_render.h`](../include/cui/cui_render.h). On the [site](https://yappologistic.github.io/CUI/), each component's page lists its options and the structs it takes and returns, and the [function reference](https://yappologistic.github.io/CUI/#/reference) lists every public function.

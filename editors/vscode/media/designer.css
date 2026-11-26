@@ -1,0 +1,102 @@
+/* VS Code's theme variables, with fallbacks for the development page (test/serve.js). */
+:root {
+  --bg: var(--vscode-editor-background, #1f1f1f);
+  --side: var(--vscode-sideBar-background, #181818);
+  --fg: var(--vscode-foreground, #cccccc);
+  --muted: var(--vscode-descriptionForeground, #9d9d9d);
+  --line: var(--vscode-panel-border, #2b2b2b);
+  --focus: var(--vscode-focusBorder, #0078d4);
+  --input-bg: var(--vscode-input-background, #313131);
+  --input-fg: var(--vscode-input-foreground, #cccccc);
+  --input-line: var(--vscode-input-border, #3c3c3c);
+  --btn-bg: var(--vscode-button-background, #0078d4);
+  --btn-fg: var(--vscode-button-foreground, #ffffff);
+  --btn2-bg: var(--vscode-button-secondaryBackground, #313131);
+  --btn2-fg: var(--vscode-button-secondaryForeground, #cccccc);
+  --hover: var(--vscode-list-hoverBackground, #2a2d2e);
+  --active: var(--vscode-list-activeSelectionBackground, #04395e);
+  --active-fg: var(--vscode-list-activeSelectionForeground, #ffffff);
+  --error: var(--vscode-inputValidation-errorBorder, #be1100);
+  --mark: #3b8eea;
+  --drop: #f0a020;
+  --font: var(--vscode-font-family, system-ui, sans-serif);
+  --mono: var(--vscode-editor-font-family, Consolas, monospace);
+  --fs: var(--vscode-font-size, 13px);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: var(--fs)/1.4 var(--font); overflow: hidden; }
+button, input, select, textarea { font: inherit; color: inherit; }
+
+#app { display: grid; grid-template-columns: 220px 1fr 280px; height: 100vh; }
+aside { background: var(--side); display: flex; flex-direction: column; min-height: 0; }
+#left { border-right: 1px solid var(--line); }
+#right { border-left: 1px solid var(--line); }
+section { padding: 8px 10px; display: flex; flex-direction: column; min-height: 0; }
+section.grow { flex: 1; border-top: 1px solid var(--line); }
+h2 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 4px 0 8px; }
+h3 { font-size: 11px; font-weight: 600; color: var(--muted); margin: 10px 0 4px; }
+
+#palette { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+#palette h3 { grid-column: 1 / -1; }
+.pal { padding: 5px 6px; border: 1px solid var(--input-line); border-radius: 4px; background: var(--input-bg); cursor: grab;
+       user-select: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; touch-action: none; }
+.pal:hover { border-color: var(--focus); }
+
+#outline { overflow: auto; flex: 1; font-size: 12px; }
+.tree-row { padding: 2px 4px; border-radius: 3px; cursor: default; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tree-row:hover { background: var(--hover); }
+.tree-row.sel { background: var(--active); color: var(--active-fg); }
+.tree-row .kind { color: var(--muted); }
+.tree-row.sel .kind { color: inherit; opacity: .8; }
+
+#center { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+#toolbar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+#toolbar label { display: flex; align-items: center; gap: 4px; color: var(--muted); }
+#toolbar input[type=number] { width: 64px; }
+#toolbar .fill { flex: 1; }
+input, select, textarea { background: var(--input-bg); color: var(--input-fg); border: 1px solid var(--input-line); border-radius: 3px; padding: 3px 5px; outline: none; }
+input:focus, select:focus, textarea:focus { border-color: var(--focus); }
+input.bad { border-color: var(--error); }
+button { background: var(--btn2-bg); color: var(--btn2-fg); border: 1px solid transparent; border-radius: 3px; padding: 3px 10px; cursor: pointer; }
+button:hover { filter: brightness(1.15); }
+button:focus-visible { outline: 1px solid var(--focus); }
+#gen { background: var(--btn-bg); color: var(--btn-fg); }
+.seg { display: inline-flex; border: 1px solid var(--input-line); border-radius: 4px; overflow: hidden; }
+.seg button { border-radius: 0; background: transparent; }
+.seg button.on { background: var(--btn-bg); color: var(--btn-fg); }
+
+#stage { flex: 1; overflow: auto; display: grid; place-items: center; padding: 24px;
+         background: repeating-conic-gradient(color-mix(in srgb, var(--bg) 92%, var(--fg)) 0 25%, var(--bg) 0 50%) 0 0 / 16px 16px; }
+#frame { position: relative; box-shadow: 0 2px 16px rgba(0, 0, 0, .35); }
+#canvas { display: block; outline: none; }
+#overlay { position: absolute; inset: 0; overflow: hidden; }
+body.test #overlay { pointer-events: none; }
+body.test #overlay > * { display: none; }
+.box { position: absolute; pointer-events: none; }
+.box.hover { outline: 1px dashed var(--mark); }
+.box.sel { outline: 2px solid var(--mark); outline-offset: -2px; }
+.box.empty { outline: 1px dashed color-mix(in srgb, var(--mark) 60%, transparent); background: color-mix(in srgb, var(--mark) 6%, transparent); }
+.box.target { outline: 2px dashed var(--drop); }
+.box .tag { position: absolute; left: -2px; top: -20px; background: var(--mark); color: #fff; font-size: 11px; padding: 1px 6px; border-radius: 3px 3px 0 0; white-space: nowrap; }
+.box.tag-below .tag { top: auto; bottom: -20px; border-radius: 0 0 3px 3px; }
+.drop { position: absolute; background: var(--drop); pointer-events: none; border-radius: 2px; }
+#status { padding: 4px 10px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; min-height: 24px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#status b { color: var(--fg); font-weight: 600; }
+
+.tabs { display: flex; border-bottom: 1px solid var(--line); }
+.tabs button { flex: 1; border-radius: 0; background: transparent; border-bottom: 2px solid transparent; padding: 6px; }
+.tabs button.on { border-bottom-color: var(--focus); }
+#props { overflow: auto; padding: 8px 10px 16px; flex: 1; }
+#code { overflow: auto; margin: 0; padding: 8px 10px; flex: 1; font: 12px/1.45 var(--mono); white-space: pre; }
+.field { display: grid; grid-template-columns: 96px 1fr; align-items: center; gap: 6px; margin: 5px 0; }
+.field > span { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+.field.top { align-items: start; }
+.field textarea { resize: vertical; min-height: 56px; }
+.field input[type=checkbox] { justify-self: start; }
+.title { display: flex; align-items: baseline; gap: 6px; margin-bottom: 6px; }
+.title b { font-size: 14px; }
+.title code { color: var(--muted); font: 12px var(--mono); }
+.actions { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0 4px; }
+.note { color: var(--muted); font-size: 12px; margin: 6px 0; }
+
+#ghost { position: fixed; z-index: 10; pointer-events: none; padding: 4px 8px; border-radius: 4px; background: var(--btn-bg); color: var(--btn-fg); font-size: 12px; transform: translate(8px, 8px); }

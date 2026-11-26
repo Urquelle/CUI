@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+{{cspMeta}}
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="{{media}}/designer.css">
+<title>CUI Designer</title>
+</head>
+<body data-wasm="{{media}}/designer.wasm">
+<div id="app">
+  <aside id="left">
+    <section>
+      <h2>Components</h2>
+      <div id="palette"></div>
+    </section>
+    <section class="grow">
+      <h2>Outline</h2>
+      <div id="outline" role="tree"></div>
+    </section>
+  </aside>
+  <main id="center">
+    <div id="toolbar">
+      <div class="seg" role="radiogroup" aria-label="Mode">
+        <button data-mode="design" class="on" title="Select, drag and drop (D)">Design</button>
+        <button data-mode="test" title="Use the UI like the app (T)">Try it</button>
+      </div>
+      <label>W <input id="pw" type="number" min="120" max="4000" step="10"></label>
+      <label>H <input id="ph" type="number" min="80" max="4000" step="10"></label>
+      <select id="theme" aria-label="Theme"><option value="light">Light</option><option value="dark">Dark</option></select>
+      <select id="accent" aria-label="Accent"></select>
+      <span class="fill"></span>
+      <button id="gen" title="Write the .ui.h and .ui.c files next to the design">Generate C</button>
+    </div>
+    <div id="stage">
+      <div id="frame">
+        <canvas id="canvas" tabindex="0" aria-label="Preview"></canvas>
+        <div id="overlay"></div>
+      </div>
+    </div>
+    <div id="status"></div>
+  </main>
+  <aside id="right">
+    <div class="tabs" role="tablist">
+      <button data-tab="props" class="on">Properties</button>
+      <button data-tab="code">C code</button>
+    </div>
+    <div id="props"></div>
+    <pre id="code" hidden></pre>
+  </aside>
+</div>
+<div id="ghost" hidden></div>
+<datalist id="icons"></datalist>
+<datalist id="sizes"><option value="fit"><option value="fill"><option value="200"><option value="50%"></datalist>
+{{bootstrap}}
+<script nonce="{{nonce}}" src="{{media}}/components.js"></script>
+<script nonce="{{nonce}}" src="{{media}}/codegen.js"></script>
+<script nonce="{{nonce}}" type="module" src="{{media}}/designer.js"></script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+{
+  "cui_designer": 1,
+  "name": "login",
+  "preview": { "width": 440, "height": 560, "theme": "light", "accent": "blue" },
+  "root": {
+    "id": "n1", "type": "column", "props": { "pad": 32, "gap": 16, "width": "fill", "height": "fill", "justify": "center" },
+    "children": [
+      { "id": "n2", "type": "card", "props": { "pad": 24, "gap": 14, "width": "fill" }, "children": [
+        { "id": "n3", "type": "heading", "props": { "text": "Willkommen zurück", "level": "2" } },
+        { "id": "n4", "type": "text", "props": { "text": "Melde dich mit deinem Konto an.", "style": "secondary" } },
+        { "id": "n5", "type": "input", "props": { "label": "E-Mail", "placeholder": "du@example.com", "icon": "mail", "width": "fill", "bind": "email" } },
+        { "id": "n6", "type": "input", "props": { "label": "Passwort", "password": true, "width": "fill", "bind": "password", "on_submit": "login_on_sign_in" } },
+        { "id": "n7", "type": "row", "props": { "gap": 8, "width": "fill", "justify": "between" }, "children": [
+          { "id": "n8", "type": "checkbox", "props": { "label": "Angemeldet bleiben", "value": true, "bind": "remember" } },
+          { "id": "n9", "type": "button", "props": { "label": "Passwort vergessen?", "variant": "link", "on_click": "login_on_forgot" } }
+        ] },
+        { "id": "n10", "type": "button", "props": { "label": "Anmelden", "variant": "primary", "full_width": true, "icon": "log_in", "on_click": "login_on_sign_in" } },
+        { "id": "n11", "type": "separator", "props": {} },
+        { "id": "n12", "type": "segmented", "props": { "items": "Hell\nDunkel\nSystem", "value": 2, "full_width": true, "bind": "theme" } }
+      ] }
+    ]
+  }
+}
