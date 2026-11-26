@@ -754,6 +754,27 @@ bool cui_wheel_take(cui_ctx *ui, cui_id id, cui_vec2 *delta) {
 bool cui_wants_keyboard(cui_ctx *ui) { return ui->edit != NULL; }
 bool cui_wants_mouse(cui_ctx *ui) { return ui->hot != 0 || ui->active != 0; }
 
+/* In the core, not in a component file: the Win32 backend calls it from WM_NCHITTEST in every
+ * app, also in one that never draws cui_title_bar. */
+cui_title_bar_hit cui_title_bar_hit_test(cui_ctx *ui, float x, float y) {
+    /* between frames the lists hold the last frame; during one (a blocking file dialog keeps
+     * the window's messages coming) they hold the frame before */
+    const cui_hit *hits = ui->in_frame ? ui->prev_hits : ui->hits;
+    int count = ui->in_frame ? ui->prev_hit_count : ui->hit_count;
+    uint64_t last = ui->in_frame ? ui->frame - 1 : ui->frame;
+    if (ui->title_bar.frame < last || ui->active) return CUI_TITLE_BAR_NONE;
+    bool on_bar = false;
+    for (int i = 0; i < ui->title_bar.count && !on_bar; i++)
+        on_bar = cui__rect_contains(cui__prev_rect(ui, ui->title_bar.bars[i]), x, y);
+    if (!on_bar) return CUI_TITLE_BAR_NONE;
+    for (int i = count - 1; i >= 0; i--) {
+        const cui_hit *h = &hits[i];
+        if (!(h->flags & (CUI_NF_INTERACTIVE | CUI_NF_BLOCKER | CUI_NF_HIT_OPAQUE)) || !cui__rect_contains(h->rect, x, y)) continue;
+        return h->id && h->id == ui->title_bar.maximize ? CUI_TITLE_BAR_MAXIMIZE : CUI_TITLE_BAR_NONE;
+    }
+    return CUI_TITLE_BAR_CAPTION;
+}
+
 void cui__set_cursor(cui_ctx *ui, cui_cursor c) { ui->cursor = c; }
 void cui_set_cursor(cui_ctx *ui, cui_cursor c) {
     if ((int)c >= 0 && c < CUI_CURSOR_COUNT) cui__set_cursor(ui, c);
