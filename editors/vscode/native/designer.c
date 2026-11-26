@@ -14,7 +14,7 @@ enum { DSG_MAX_NODES = 1024, DSG_MAX_PROPS = 32, DSG_MAX_ITEMS = 32, DSG_MAX_EVE
 
 typedef enum dsg_kind {
     /* containers first: dsg_is_container relies on it */
-    DSG_COLUMN, DSG_ROW, DSG_GRID, DSG_CARD, DSG_SCROLL, DSG_ACCORDION, DSG_SPLIT, DSG_DIALOG, DSG_SHEET, DSG_DIALOG_FOOTER,
+    DSG_COLUMN, DSG_ROW, DSG_GRID, DSG_CARD, DSG_SCROLL, DSG_ACCORDION, DSG_SPLIT, DSG_DIALOG, DSG_SHEET, DSG_BUTTON_GROUP, DSG_DIALOG_FOOTER,
     DSG_HEADING, DSG_TEXT, DSG_LINK, DSG_KBD, DSG_ICON, DSG_BUTTON, DSG_ICON_BUTTON,
     DSG_CHECKBOX, DSG_SWITCH, DSG_SLIDER, DSG_INPUT, DSG_TEXTAREA,
     DSG_SELECT, DSG_SEGMENTED, DSG_TABS, DSG_RADIO_GROUP,
@@ -22,13 +22,15 @@ typedef enum dsg_kind {
     DSG_NAV_SECTION, DSG_NAV_ITEM, DSG_BREADCRUMB, DSG_PAGINATION, DSG_STEPPER,
     DSG_PROGRESS, DSG_BADGE, DSG_ALERT, DSG_SPINNER, DSG_SKELETON, DSG_EMPTY_STATE,
     DSG_AVATAR, DSG_LIST_ITEM, DSG_METER, DSG_SEPARATOR, DSG_SPACER, DSG_TABLE, DSG_DATA_GRID,
+    DSG_COLOR_PICKER, DSG_TAG_INPUT, DSG_OTP, DSG_RADIO_CARDS, DSG_COPY_BUTTON, DSG_HOLD_BUTTON,
+    DSG_PASSWORD_STRENGTH, DSG_PROGRESS_RING, DSG_METRIC, DSG_TIMELINE_ITEM,
     DSG_KIND_COUNT
 } dsg_kind;
 #define dsg_is_container(k) ((k) <= DSG_DIALOG_FOOTER)
 
 /* The names media/components.js uses for the same kinds. */
 static const char *const dsg_kind_names[DSG_KIND_COUNT] = {
-    "column", "row", "grid", "card", "scroll", "accordion", "split", "dialog", "sheet", "dialog_footer",
+    "column", "row", "grid", "card", "scroll", "accordion", "split", "dialog", "sheet", "button_group", "dialog_footer",
     "heading", "text", "link", "kbd", "icon", "button", "icon_button",
     "checkbox", "switch", "slider", "input", "textarea",
     "select", "segmented", "tabs", "radio_group",
@@ -36,6 +38,8 @@ static const char *const dsg_kind_names[DSG_KIND_COUNT] = {
     "nav_section", "nav_item", "breadcrumb", "pagination", "stepper",
     "progress", "badge", "alert", "spinner", "skeleton", "empty_state",
     "avatar", "list_item", "meter", "separator", "spacer", "table", "data_grid",
+    "color_picker", "tag_input", "otp", "radio_cards", "copy_button", "hold_button",
+    "password_strength", "progress_ring", "metric", "timeline_item",
 };
 
 typedef struct dsg_prop { char *key, *value; } dsg_prop;
@@ -54,6 +58,7 @@ typedef struct dsg_node {
     int index;
     double number;
     cui_date date;
+    cui_color color;
     char text[DSG_TEXT_CAP];
     bool shown;                           /* a dialog or sheet that was open in the latest frame */
     /* a table's "columns" and "rows", split in place */
@@ -62,6 +67,11 @@ typedef struct dsg_node {
     cui_table_column table_columns[DSG_MAX_COLUMNS];
     cui_grid_column grid_columns[DSG_MAX_COLUMNS];
     const char **cells;                   /* row_count * column_count, "" where a row is short */
+    char *choices_text;                   /* radio cards' "choices", split in place */
+    cui_choice choices[DSG_MAX_ITEMS];
+    int choice_count;
+    float spark[DSG_MAX_ITEMS];           /* a metric's sparkline */
+    int spark_count;
     int ui_node;                          /* its first node in the latest frame, or -1 */
 } dsg_node;
 
@@ -88,6 +98,7 @@ static void dsg_free_node(dsg_node *n) {
     free(n->columns_text);
     free(n->rows_text);
     free(n->cells);
+    free(n->choices_text);
     memset(n, 0, sizeof *n);
 }
 
@@ -271,6 +282,87 @@ static void dsg_parse_table(dsg_node *n) {
     }
 }
 
+/* "#3b82f6" or "3b82f6"; anything else is no color, as in media/codegen.js parseHex. */
+static cui_color dsg_parse_hex(const char *v) {
+    cui_color c = { 0, 0, 0, 0 };
+    if (!v) return c;
+    if (*v == '#') v++;
+    unsigned x = 0;
+    for (int k = 0; k < 6; k++) {
+        char h = v[k];
+        int d = h >= '0' && h <= '9' ? h - '0' : h >= 'a' && h <= 'f' ? h - 'a' + 10 : h >= 'A' && h <= 'F' ? h - 'A' + 10 : -1;
+        if (d < 0) return c;
+        x = x * 16 + (unsigned)d;
+    }
+    if (v[6]) return c;
+    c.r = (uint8_t)(x >> 16); c.g = (uint8_t)(x >> 8); c.b = (uint8_t)x; c.a = 255;
+    return c;
+}
+
+/* Radio cards' "choices": one per line, "title | description | icon | badge"; blank
+ * lines are skipped, empty parts are left out. As in media/codegen.js parseChoices. */
+static void dsg_parse_choices(dsg_node *n) {
+    free(n->choices_text);
+    n->choices_text = strdup(dsg_str(n, "choices"));
+    n->choice_count = 0;
+    for (char *line = n->choices_text; line && n->choice_count < DSG_MAX_ITEMS;) {
+        char *nl = strchr(line, '\n');
+        if (nl) *nl = 0;
+        char *rest = dsg_trim(line);
+        if (*rest) {
+            const char *part[4] = { NULL, NULL, NULL, NULL };
+            for (int k = 0; k < 4 && rest; k++) {
+                char *bar = strchr(rest, '|');
+                if (bar) *bar = 0;
+                char *t = dsg_trim(rest);
+                part[k] = *t ? t : NULL;
+                rest = bar ? bar + 1 : NULL;
+            }
+            cui_choice *ch = &n->choices[n->choice_count++];
+            ch->title = part[0] ? part[0] : "";
+            ch->description = part[1];
+            ch->icon = NULL;
+            if (part[2]) for (int k = 0; k < DSG_ICON_COUNT; k++) if (strcmp(dsg_icons[k].name, part[2]) == 0) ch->icon = dsg_icons[k].glyph;
+            ch->badge = part[3];
+        }
+        line = nl ? nl + 1 : NULL;
+    }
+}
+
+/* A metric's "spark": numbers between commas; a part that is not a plain number is
+ * skipped. As in media/codegen.js parseSpark. */
+static void dsg_parse_spark(dsg_node *n) {
+    n->spark_count = 0;
+    const char *v = dsg_str(n, "spark");
+    while (*v && n->spark_count < DSG_MAX_ITEMS) {
+        const char *comma = strchr(v, ',');
+        size_t len = comma ? (size_t)(comma - v) : strlen(v);
+        char tok[48];
+        if (len < sizeof tok) {
+            memcpy(tok, v, len);
+            tok[len] = 0;
+            char *t = dsg_trim(tok), *end;
+            bool plain = *t != 0;
+            for (const char *c = t; *c; c++) if (!strchr("0123456789.eE+-", *c)) plain = false;
+            float x = plain ? strtof(t, &end) : 0;
+            if (plain && !*end) n->spark[n->spark_count++] = x;
+        }
+        if (!comma) break;
+        v = comma + 1;
+    }
+}
+
+/* A one-time code field's box count, 1..12, 6 when unset: media/codegen.js otpLength. */
+static int dsg_otp_length(const dsg_node *n) {
+    int len = (int)dsg_num(n, "length", 6);
+    return len < 1 ? 1 : len > 12 ? 12 : len;
+}
+
+/* The kinds whose state is text, which a password strength meter can rate. */
+static bool dsg_holds_text(dsg_kind k) {
+    return k == DSG_INPUT || k == DSG_TEXTAREA || k == DSG_SEARCH || k == DSG_TAG_INPUT || k == DSG_OTP;
+}
+
 /* Sets the live values from the document, after it was sent in. */
 DSG_EXPORT(dsg_commit) void dsg_commit(void) {
     for (int i = 0; i < dsg_node_count; i++) {
@@ -283,7 +375,15 @@ DSG_EXPORT(dsg_commit) void dsg_commit(void) {
         const char *v = dsg_get(n, "value");
         n->number = v && *v ? strtod(v, NULL) : 0;
         n->date = dsg_parse_date(v);
-        snprintf(n->text, sizeof n->text, "%s", n->kind == DSG_INPUT || n->kind == DSG_TEXTAREA || n->kind == DSG_SEARCH ? dsg_str(n, "value") : "");
+        snprintf(n->text, sizeof n->text, "%s", dsg_holds_text(n->kind) && n->kind != DSG_OTP ? dsg_str(n, "value") : "");
+        if (n->kind == DSG_OTP) {   /* printable ASCII, at most one character per box: media/codegen.js otpInit */
+            int len = dsg_otp_length(n), k = 0;
+            for (const char *c = dsg_str(n, "value"); *c && k < len; c++) if (*c >= 0x20 && *c < 0x7f) n->text[k++] = *c;
+            n->text[k] = 0;
+        }
+        n->color = dsg_parse_hex(v);
+        if (n->kind == DSG_RADIO_CARDS) dsg_parse_choices(n);
+        if (n->kind == DSG_METRIC) dsg_parse_spark(n);
     }
 }
 
@@ -407,6 +507,13 @@ static void dsg_build_container(cui_ctx *ui, dsg_node *n) {
         dsg_drop_room(ui, n);
         dsg_build_children(ui, n);
         cui_dialog_footer_end(ui);
+        return;
+    }
+    if (n->kind == DSG_BUTTON_GROUP) {
+        cui_button_group_begin(ui);
+        dsg_drop_room(ui, n);
+        dsg_build_children(ui, n);
+        cui_button_group_end(ui);
         return;
     }
     if (n->kind == DSG_SCROLL) {
@@ -560,6 +667,7 @@ static void dsg_build_control(cui_ctx *ui, int i) {
         cui_select_opts o = { 0 };
         o.label = dsg_opt(n, "label");
         o.placeholder = dsg_opt(n, "placeholder");
+        o.searchable = dsg_flag(n, "searchable");
         o.disabled = dsg_flag(n, "disabled");
         o.width = dsg_size(n, "width");
         if (cui_select_ex(ui, dsg_id(n), n->items, n->item_count, &n->index, &o)) dsg_event(i);
@@ -728,6 +836,61 @@ static void dsg_build_control(cui_ctx *ui, int i) {
     }
     case DSG_SEPARATOR: cui_separator(ui); break;
     case DSG_SPACER: cui_spacer(ui); break;
+    case DSG_COLOR_PICKER: if (cui_color_picker(ui, dsg_id(n), &n->color)) dsg_event(i); break;
+    case DSG_TAG_INPUT: {
+        cui_tag_opts o = { 0 };
+        o.label = dsg_opt(n, "label");
+        o.placeholder = dsg_opt(n, "placeholder");
+        o.max_tags = (int)dsg_num(n, "max_tags", 0);
+        o.width = dsg_size(n, "width");
+        if (cui_tag_input_ex(ui, dsg_id(n), n->text, sizeof n->text, &o)) dsg_event(i);
+        break;
+    }
+    case DSG_OTP: if (cui_otp_input(ui, dsg_id(n), n->text, dsg_otp_length(n))) dsg_event(i); break;
+    case DSG_RADIO_CARDS: {
+        cui_radio_cards_opts o = { 0 };
+        o.columns = (int)dsg_num(n, "columns", 0);
+        if (cui_radio_cards_ex(ui, dsg_id(n), n->choice_count ? n->choices : NULL, n->choice_count, &n->index, &o)) dsg_event(i);
+        break;
+    }
+    case DSG_COPY_BUTTON: if (cui_copy_button(ui, dsg_id(n), dsg_str(n, "text"))) dsg_event(i); break;
+    case DSG_HOLD_BUTTON: {
+        cui_hold_opts o = { 0 };
+        o.duration = dsg_num(n, "duration", 0);
+        o.icon = dsg_icon_glyph(n, "icon");
+        o.variant = (cui_button_variant)DSG_ENUM(n, "variant", dsg_variant_names);
+        if (cui_hold_button_ex(ui, dsg_str(n, "label"), &o)) dsg_clicked(i);
+        break;
+    }
+    case DSG_PASSWORD_STRENGTH: {   /* rates the live text of the field named by "of" */
+        const char *of = dsg_opt(n, "of"), *pw = "";
+        for (int k = 0; of && k < dsg_node_count; k++)
+            if (dsg_holds_text(dsg_nodes[k].kind) && strcmp(dsg_str(&dsg_nodes[k], "bind"), of) == 0) { pw = dsg_nodes[k].text; break; }
+        cui_password_strength(ui, pw);
+        break;
+    }
+    case DSG_PROGRESS_RING: cui_progress_ring(ui, dsg_str(n, "label"), dsg_num(n, "value", 0), dsg_num(n, "size", 0)); break;
+    case DSG_METRIC: {
+        cui_metric_opts o = { 0 };
+        o.delta = dsg_num(n, "delta", 0);
+        o.delta_label = dsg_opt(n, "delta_label");
+        o.lower_is_better = dsg_flag(n, "lower_is_better");
+        if (n->spark_count) { o.spark = n->spark; o.spark_count = n->spark_count; }
+        o.icon = dsg_icon_glyph(n, "icon");
+        o.width = dsg_size(n, "width");
+        cui_metric_ex(ui, dsg_str(n, "label"), dsg_str(n, "value"), &o);
+        break;
+    }
+    case DSG_TIMELINE_ITEM: {
+        cui_timeline_opts o = { 0 };
+        o.time = dsg_opt(n, "time");
+        o.description = dsg_opt(n, "description");
+        o.icon = dsg_icon_glyph(n, "icon");
+        o.tone = (cui_tone)DSG_ENUM(n, "tone", dsg_tone_names);
+        o.last = dsg_flag(n, "last");
+        cui_timeline_item_ex(ui, dsg_str(n, "title"), &o);
+        break;
+    }
     default: break;
     }
 }

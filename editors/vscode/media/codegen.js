@@ -34,7 +34,7 @@
     const names = new Map(), used = new Set();
     walk(doc.root, (n) => {
       const spec = C.byType[n.type];
-      if (!spec || !spec.state) return;
+      if (!spec || !(spec.state || spec.named)) return;   // named: no state, but an id that must be unique
       const p = n.props || {};
       let base = p.bind && isIdent(p.bind) ? p.bind : ident(p.label || p.title || (p.items || '').split('\n')[0], n.type);
       let name = base, k = 2;
@@ -81,6 +81,28 @@
     if (!m || +m[2] < 1 || +m[2] > 12 || +m[3] < 1 || +m[3] > 31) return null;
     return [+m[1], +m[2], +m[3]];
   }
+  // "#3b82f6" as red, green and blue, or null: native/designer.c dsg_parse_hex
+  function parseHex(v) {
+    const m = /^#?([0-9a-fA-F]{6})$/.exec(String(v ?? ''));
+    if (!m) return null;
+    const x = parseInt(m[1], 16);
+    return [x >> 16, (x >> 8) & 255, x & 255];
+  }
+  // Radio cards' choices, "title | description | icon | badge" per line: native/designer.c dsg_parse_choices
+  function parseChoices(text) {
+    return String(text || '').split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 32).map((line) => {
+      const [title = '', description = '', icon = '', badge = ''] = line.split('|').map((t) => t.trim());
+      return { title, description, icon, badge };
+    });
+  }
+  // A metric's sparkline: the plain numbers between commas: native/designer.c dsg_parse_spark
+  function parseSpark(text) {
+    return String(text || '').split(',').map((t) => t.trim())
+      .filter((t) => /^[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?$/.test(t)).slice(0, 32).map(Number);
+  }
+  // A one-time code field's box count and its first text: native/designer.c dsg_otp_length and dsg_commit
+  const otpLength = (v) => { const n = Math.trunc(Number(v ?? 6)); return Number.isFinite(n) ? Math.min(12, Math.max(1, n)) : 6; };
+  const otpInit = (v, len) => [...String(v ?? '')].filter((ch) => ch >= ' ' && ch < '\x7f').slice(0, len).join('');
   function colorExpr(spec, key, value) {   // a theme color property as an expression, or null for none
     const prop = spec.props.find((x) => x.key === key);
     const i = prop.options.findIndex((o) => o[0] === value);
@@ -153,7 +175,12 @@
     const fields = [], arrays = [], handlers = new Map(), inits = [], dataFunctions = [];
     let usesIcons = false, usesText = false;
     const modals = new Set();   // the state fields "opens" and "closes" may name
-    walk(doc.root, (n) => { if (C.byType[n.type] && C.byType[n.type].modal) modals.add(names.get(n.id)); });
+    const texts = new Set();    // the text fields a password strength meter may rate
+    walk(doc.root, (n) => {
+      const spec = C.byType[n.type];
+      if (spec && spec.modal) modals.add(names.get(n.id));
+      if (spec && spec.state === 'text') texts.add(names.get(n.id));
+    });
 
     const handlerCall = (p, key) => {
       const h = p[key];
@@ -335,6 +362,52 @@
             `${q(2)}for (int r = first; r < last; r++) {\n` + body('cui_data_grid_row(ui, r)', 3) +
             `${q(2)}}\n${q(2)}cui_data_grid_end(ui);\n${q(1)}}\n${pad}}\n`;
         }
+        case 'color_picker': {
+          fields.push(`    cui_color ${field};`);
+          const c = parseHex(p.value);
+          if (c) inits.push(`    s->${field} = (cui_color){ ${c.join(', ')}, 255 };`);
+          return wrap(`cui_color_picker(ui, ${str(field)}, &${ref})`, 'on_change');
+        }
+        case 'tag_input':
+          fields.push(`    char ${field}[${TEXT_CAP}];${' '.repeat(Math.max(1, 16 - field.length))}/* the tags, separated by commas */`);
+          if (p.value) { usesText = true; inits.push(`    snprintf(s->${field}, sizeof s->${field}, "%s", ${str(p.value)});`); }
+          return wrap(`cui_tag_input(ui, ${str(field)}, ${ref}, sizeof ${ref}${o})`, 'on_change');
+        case 'otp': {
+          const len = otpLength(p.length), first = otpInit(p.value, len);
+          fields.push(`    char ${field}[${len + 1}];`);
+          if (first) inits.push(`    memcpy(s->${field}, ${str(first)}, ${first.length});`);
+          return wrap(`cui_otp_input(ui, ${str(field)}, ${ref}, ${len})`, 'on_complete');
+        }
+        case 'radio_cards': {
+          fields.push(`    int ${field};`);
+          if (Number(p.value)) inits.push(`    s->${field} = ${num(Math.trunc(Number(p.value)))};`);
+          const ch = parseChoices(p.choices);
+          let arg = 'NULL, 0';
+          if (ch.length) {
+            const arr = `${prefix}_${field}_choices`;
+            const one = (c) => `{ .title = ${str(c.title)}${c.description ? `, .description = ${str(c.description)}` : ''}` +
+              `${c.icon ? `, .icon = ${iconMacro(c.icon)}` : ''}${c.badge ? `, .badge = ${str(c.badge)}` : ''} }`;
+            if (ch.some((c) => c.icon)) usesIcons = true;
+            arrays.push(`static const cui_choice ${arr}[] = {\n${ch.map((c) => `    ${one(c)},`).join('\n')}\n};`);
+            arg = `${arr}, ${ch.length}`;
+          }
+          return wrap(`cui_radio_cards(ui, ${str(field)}, ${arg}, &${ref}${o})`, 'on_change');
+        }
+        case 'copy_button': return wrap(`cui_copy_button(ui, ${str(field)}, ${str(p.text || '')})`, 'on_click');
+        case 'hold_button': return wrap(`cui_hold_button(ui, ${str(p.label || '')}${o})`, 'on_click');
+        case 'password_strength': return `${pad}cui_password_strength(ui, ${texts.has(p.of) ? `s->${p.of}` : '""'});\n`;
+        case 'progress_ring': return `${pad}cui_progress_ring(ui, ${str(p.label || '')}, ${floatLit(p.value ?? 0)}, ${floatLit(p.size ?? 0)});\n`;
+        case 'metric': {
+          const sp = parseSpark(p.spark);
+          let spark = '';
+          if (sp.length) {
+            const arr = `${prefix}_${n.id}_spark`;
+            arrays.push(`static const float ${arr}[] = { ${sp.map(floatLit).join(', ')} };`);
+            spark = `, .spark = ${arr}, .spark_count = ${sp.length}`;
+          }
+          return `${pad}cui_metric(ui, ${str(p.label || '')}, ${str(p.value ?? '')}${o}${spark});\n`;
+        }
+        case 'timeline_item': return `${pad}cui_timeline_item(ui, ${str(p.title || '')}${o});\n`;
         case 'progress': return `${pad}cui_progress(ui, ${floatLit(p.value ?? 0)}${o});\n`;
         case 'badge': return `${pad}cui_badge(ui, ${str(p.text || '')}${o});\n`;
         case 'alert': return `${pad}cui_alert(ui, ${str(p.title || '')}${o});\n`;
@@ -379,5 +452,5 @@
     };
   }
 
-  return { generate, resolveNames, ident, isIdent, newDocument, walk, parseColumns, parseRows };
+  return { generate, resolveNames, ident, isIdent, newDocument, walk, parseColumns, parseRows, parseHex, parseChoices, parseSpark };
 });

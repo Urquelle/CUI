@@ -13,15 +13,15 @@ and is proposed to the project in [yappologistic/CUI#139](https://github.com/yap
 
 ## What it does
 
-- **Palette**: 50 kinds in eight groups. A click on a group's heading folds it. Drag a component onto the preview, or click it to add it after the selection.
+- **Palette**: 61 kinds in eight groups. A click on a group's heading folds it. Drag a component onto the preview, or click it to add it after the selection.
   - *Layout*: column, row and grid (with a theme background, border and radius), scroll area, accordion, split view (the first child is the first pane), card, separator, spacer.
   - *Overlays*: dialog, dialog footer (the dialog's button row) and sheet. A dialog shows in the designer while it or something in it is selected; in *Try it* and in the app it opens when its state field is true. A button, icon button or link opens or closes one with its *Opens* and *Closes* properties.
   - *Text*: heading, text, link, key cap, icon.
-  - *Controls*: button, icon button, checkbox, switch, slider, text field, text area, select, segmented control, tabs, radio group, search, number field, chip, rating, range slider, date picker.
+  - *Controls*: button, icon button, checkbox, switch, slider, text field, text area, select (with *Searchable*, a combobox), segmented control, tabs, radio group, search, number field, chip, rating, range slider, date picker, color picker, tag input, one-time code, radio cards (choices are lines like `Team | Up to ten people | users | Popular`), button group (a container for buttons), copy button, hold button.
   - *Navigation*: nav section, nav item, breadcrumb, pagination, stepper.
   - *Data*: table and data grid (the grid builds only its visible rows). Columns are lines like `Size, 90, right` (a title, then a width and an alignment); rows are lines of cells between `|`. With *Data* set to *code*, the generated header declares two functions that give the rows, and the preview keeps showing the sample rows.
-  - *Feedback*: progress, badge, alert, spinner, skeleton, empty state.
-  - *Display*: avatar, list item, meter.
+  - *Feedback*: progress, progress ring, badge, alert, spinner, skeleton, empty state, password strength (it rates a text field you pick, live in *Try it*).
+  - *Display*: avatar, list item, meter, metric (with a change and a sparkline), timeline item.
 - **Panels**: the palette, the outline and the properties sit in columns beside the preview. Drag the lines between them to change widths and heights (a double-click on a column's line gives its default width). Drag a panel by its header (the dots, for the properties) to another place in a column, to a column's edge for a new column there, or to the outer quarter of the preview for a new column on that side. VS Code keeps the layout and the folded groups for every design.
 - **Preview**: the real library compiled to WebAssembly and drawn by its software renderer. *Fit* zooms a large design out to the editor's size; the other zoom levels are fixed. It is not an imitation: what you see is what the generated code draws (see [Checks](#checks)). In **Design** mode you select, drag and move. In **Try it** mode the preview takes the mouse and keyboard like the app, and the status line names the event handler that a click or change would call.
 - **Outline** and **properties**: every option from the component's options struct, edited in place. <kbd>Del</kbd> deletes, <kbd>Alt+↑/↓</kbd> moves, <kbd>Ctrl+D</kbd> duplicates, <kbd>Esc</kbd> selects the parent. *Wrap in row* and *Wrap in column* put a container around the selection.
@@ -33,6 +33,8 @@ and is proposed to the project in [yappologistic/CUI#139](https://github.com/yap
 ![A dialog over a table and a data grid; the selection inside the dialog keeps it open in the designer](https://raw.githubusercontent.com/Urquelle/CUI/8f51697fa343c787087af09952f19d702b9c39f8/editors/vscode/docs/designer-dialog-table.png)
 
 ![The panels moved: the components alone on the left, the outline above the properties on the right, some palette groups folded](https://raw.githubusercontent.com/Urquelle/CUI/8f51697fa343c787087af09952f19d702b9c39f8/editors/vscode/docs/designer-panels.png)
+
+![A sign-up form with the newer kinds: password strength, a one-time code, tags, a combobox, a color, radio cards, a button group, copy and hold buttons, metrics, a progress ring and a timeline](docs/designer-signup.png)
 
 The images show the webview in a browser (`test/serve.js`), where it looks as it does in VS Code's dark theme.
 
@@ -132,7 +134,7 @@ node test/smoke.mjs                # the preview module builds a tree and report
 
 ## Not done yet
 
-- Most of CUI's 210 components: trees, tree tables, charts, popovers, menus, toasts, toolbars, color pickers, images and the rest.
+- Most of CUI's 210 components: trees, tree tables, charts, popovers, menus, toasts, toolbars, images and the rest.
 - Tables show text only: no components in cells, no sortable headers, no editable cells, and no checkbox selection in the data grid.
 - Dynamic text (a label that shows a value from the state), lists built from data, and showing parts of the UI only under a condition.
 - Reading hand-written C back into a design. The generator writes in one direction.

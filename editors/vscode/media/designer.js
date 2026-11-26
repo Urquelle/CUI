@@ -255,7 +255,7 @@ function openModal() {
   return top;
 }
 
-const axisOf = (n) => n.type === 'row' || n.type === 'dialog_footer' || (n.type === 'card' && n.props.dir === 'row') || (n.type === 'split' && !n.props.vertical) ? 'x'
+const axisOf = (n) => n.type === 'row' || n.type === 'dialog_footer' || n.type === 'button_group' || (n.type === 'card' && n.props.dir === 'row') || (n.type === 'split' && !n.props.vertical) ? 'x'
   : n.type === 'grid' ? 'grid' : 'y';
 
 // Where a drop at the point would go: the container and the index among its children.
@@ -549,8 +549,16 @@ function field(prop, n) {
       input.value = v ?? '';
       break;
     }
+    case 'textfield': {   // the state field of a text field in this design
+      const fields = order.filter((k) => specOf(k) && specOf(k).state === 'text').map((k) => [names.get(k.id), label(k)]);
+      if (v && !fields.some(([f]) => f === v)) fields.push([v, `${v} (not in this design)`]);
+      input = el('select', { onchange: (e) => set(e.target.value) }, el('option', { value: '' }, 'none'),
+                 ...fields.map(([f, t]) => el('option', { value: f }, `${t} (${f})`)));
+      input.value = v ?? '';
+      break;
+    }
     case 'multiline':
-      input = el('textarea', { rows: prop.key === 'rows' || prop.key === 'columns' ? 5 : 3, spellcheck: 'false', oninput: (e) => set(e.target.value, true) });
+      input = el('textarea', { rows: prop.key === 'rows' || prop.key === 'columns' || prop.key === 'choices' ? 5 : 3, spellcheck: 'false', oninput: (e) => set(e.target.value, true) });
       input.value = v ?? '';
       break;
     case 'ident': {

@@ -1,0 +1,44 @@
+{
+  "cui_designer": 1,
+  "name": "signup",
+  "preview": { "width": 920, "height": 760, "theme": "light", "accent": "blue" },
+  "root": { "id": "n1", "type": "column", "props": { "pad": 24, "gap": 16, "width": "fill", "height": "fill" }, "children": [
+    { "id": "n2", "type": "heading", "props": { "text": "Konto anlegen", "level": "2" } },
+    { "id": "n3", "type": "row", "props": { "gap": 24, "width": "fill", "align": "start" }, "children": [
+      { "id": "n4", "type": "column", "props": { "gap": 12, "width": "fill" }, "children": [
+        { "id": "n5", "type": "input", "props": { "label": "Passwort", "value": "Sommer2026", "password": true, "width": "fill", "bind": "password" } },
+        { "id": "n6", "type": "password_strength", "props": { "of": "password" } },
+        { "id": "n7", "type": "text", "props": { "text": "Bestätigungscode", "style": "label" } },
+        { "id": "n8", "type": "otp", "props": { "length": 6, "value": "48", "on_complete": "signup_check_code" } },
+        { "id": "n9", "type": "tag_input", "props": { "label": "Interessen", "placeholder": "Thema hinzufügen", "value": "design,c99", "max_tags": 5, "width": "fill" } },
+        { "id": "n10", "type": "select", "props": { "label": "Land", "items": "Deutschland\nÖsterreich\nSchweiz\nNiederlande", "searchable": true, "width": "fill" } },
+        { "id": "n11", "type": "row", "props": { "gap": 8, "align": "center" }, "children": [
+          { "id": "n12", "type": "text", "props": { "text": "Akzentfarbe", "style": "label" } },
+          { "id": "n13", "type": "color_picker", "props": { "value": "#7c3aed", "bind": "accent" } }
+        ] }
+      ] },
+      { "id": "n14", "type": "column", "props": { "gap": 12, "width": "fill" }, "children": [
+        { "id": "n15", "type": "radio_cards", "props": { "choices": "Starter | Eine Person | user\nTeam | Bis zehn Personen | users | Beliebt\nScale | Ohne Grenze, mit SSO | rocket", "value": 1, "columns": 3, "bind": "plan", "on_change": "signup_plan_changed" } },
+        { "id": "n16", "type": "button_group", "props": {}, "children": [
+          { "id": "n17", "type": "button", "props": { "label": "Monatlich" } },
+          { "id": "n18", "type": "button", "props": { "label": "Jährlich", "variant": "primary" } }
+        ] },
+        { "id": "n19", "type": "row", "props": { "gap": 8, "align": "center" }, "children": [
+          { "id": "n20", "type": "text", "props": { "text": "sk-test-4f9a2c", "style": "code" } },
+          { "id": "n21", "type": "copy_button", "props": { "text": "sk-test-4f9a2c" } },
+          { "id": "n22", "type": "spacer", "props": {} },
+          { "id": "n23", "type": "hold_button", "props": { "label": "Gedrückt halten zum Löschen", "variant": "danger", "icon": "trash_2", "duration": 1.5, "on_click": "signup_delete" } }
+        ] }
+      ] }
+    ] },
+    { "id": "n24", "type": "row", "props": { "gap": 16, "width": "fill", "align": "center" }, "children": [
+      { "id": "n25", "type": "metric", "props": { "label": "Anmeldungen", "value": "1.284", "delta": 12.5, "spark": "8, 11, 10, 14, 13, 17, 19", "icon": "users", "width": "fill" } },
+      { "id": "n26", "type": "metric", "props": { "label": "Abbrüche", "value": "3,1 %", "delta": -0.8, "delta_label": "-0,8 Punkte", "lower_is_better": true, "width": "fill" } },
+      { "id": "n27", "type": "progress_ring", "props": { "label": "Profil", "value": 0.72, "size": 96 } }
+    ] },
+    { "id": "n28", "type": "column", "props": { "gap": 0, "width": "fill" }, "children": [
+      { "id": "n29", "type": "timeline_item", "props": { "title": "Konto angelegt", "time": "vor 2 Min.", "icon": "user", "tone": "accent" } },
+      { "id": "n30", "type": "timeline_item", "props": { "title": "E-Mail bestätigt", "time": "gerade eben", "description": "über den Code aus der Nachricht", "icon": "circle_check", "tone": "success", "last": true } }
+    ] }
+  ] }
+}
