@@ -135,6 +135,7 @@ function sendToPreview() {
     if (names.has(n.id)) withStrings(['bind', names.get(n.id)], (a, b) => x.dsg_set(i, a, b));
   });
   x.dsg_commit();
+  tellSelection();
   poke();
 }
 
@@ -233,18 +234,27 @@ function label(n) {
 function pointIn(r, px, py) { return r && px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h; }
 
 // The deepest node under the point (only containers when `containers`), skipping `skip` and what is inside it.
+// While a dialog or sheet is open it covers the rest, so only what is in it can be hit;
+// a click on the dimmed window around it selects the dialog.
 function hit(px, py, containers, skip) {
+  const top = openModal(), root = top || doc.root;
   let best = null, bestDepth = -1;
   const visit = (n, depth) => {
     if (skip && n === skip) return;
     if ((!containers || isContainer(n)) && pointIn(rectOf(n), px, py) && depth >= bestDepth) { best = n; bestDepth = depth; }
     for (const c of n.children || []) visit(c, depth + 1);
   };
-  visit(doc.root, 0);
-  return best || (containers ? doc.root : null);
+  visit(root, 0);
+  return best || (containers || top ? root : null);
+}
+// The topmost dialog or sheet open in the latest frame, or null.
+function openModal() {
+  let top = null;
+  order.forEach((n, i) => { if (specOf(n) && specOf(n).modal && x.dsg_shown(i)) top = n; });
+  return top;
 }
 
-const axisOf = (n) => n.type === 'row' || (n.type === 'card' && n.props.dir === 'row') || (n.type === 'split' && !n.props.vertical) ? 'x'
+const axisOf = (n) => n.type === 'row' || n.type === 'dialog_footer' || (n.type === 'card' && n.props.dir === 'row') || (n.type === 'split' && !n.props.vertical) ? 'x'
   : n.type === 'grid' ? 'grid' : 'y';
 
 // Where a drop at the point would go: the container and the index among its children.
@@ -355,7 +365,14 @@ function bindOverlay() {
 function select(id) {
   if (selected === id) return;
   selected = id;
+  tellSelection();
   renderOutline(); renderPanel(); drawOverlay();
+}
+// The preview shows a dialog while the selection is in it.
+function tellSelection() {
+  if (!x) return;
+  x.dsg_set_selected(selected ? order.findIndex((n) => n.id === selected) : -1);
+  poke();
 }
 
 document.addEventListener('keydown', (e) => {
@@ -428,10 +445,13 @@ function bindCanvas() {
 }
 
 function reportEvent(n) {
-  if (!n) return;
+  if (!n || specOf(n).modal) return;   // a dialog opening or closing: the button that did it says so
   const p = n.props, ev = (specOf(n).props || []).find((x) => x.event), key = ev ? ev.key : 'on_change';
-  const h = p[key] && isIdent(p[key]) ? `calls <b>${esc(p[key])}(ui, s)</b>` : `no handler (set “${key.replace('_', ' ')}” to call one)`;
-  status(`${esc(label(n))}: ${key.slice(3)} → ${h}`);
+  const did = [];
+  if (p.opens) did.push(`opens <b>${esc(p.opens)}</b>`);
+  if (p.closes) did.push(`closes <b>${esc(p.closes)}</b>`);
+  if (p[key] && isIdent(p[key])) did.push(`calls <b>${esc(p[key])}(ui, s)</b>`);
+  status(`${esc(label(n))}: ${key.slice(3)} → ${did.length ? did.join(', ') : `nothing yet (set “${key.replace('_', ' ')}” to call a function)`}`);
 }
 
 function setMode(m) {
@@ -501,8 +521,16 @@ function field(prop, n) {
       input = el('select', { onchange: (e) => set(e.target.value) }, ...prop.options.map(([val]) => el('option', { value: val }, val || 'default')));
       input.value = v ?? prop.options[0][0];
       break;
+    case 'modal': {   // the state field of a dialog or sheet in this design
+      const fields = order.filter((k) => specOf(k) && specOf(k).modal).map((k) => [names.get(k.id), label(k)]);
+      if (v && !fields.some(([f]) => f === v)) fields.push([v, `${v} (not in this design)`]);
+      input = el('select', { onchange: (e) => set(e.target.value) }, el('option', { value: '' }, 'none'),
+                 ...fields.map(([f, t]) => el('option', { value: f }, `${t} (${f})`)));
+      input.value = v ?? '';
+      break;
+    }
     case 'multiline':
-      input = el('textarea', { rows: 3, oninput: (e) => set(e.target.value, true) });
+      input = el('textarea', { rows: prop.key === 'rows' || prop.key === 'columns' ? 5 : 3, spellcheck: 'false', oninput: (e) => set(e.target.value, true) });
       input.value = v ?? '';
       break;
     case 'ident': {

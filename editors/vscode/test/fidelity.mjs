@@ -41,9 +41,13 @@ async function render(source, doc, design) {
   }
   const p = doc.preview || {};
   const inst = x.inst_new(0, p.width || 480, p.height || 360, 1, p.theme === 'dark' ? 1 : 0, Math.max(0, ACCENTS.indexOf(p.accent || 'neutral')), 0);
-  for (let f = 0; f < 4; f++) x.inst_frame(inst, 1 / 60, f === 3 ? 1 : 0);
-  const px = mod.pixels(inst);
-  return { w: px.w, h: px.h, data: new Uint8Array(px.data) };
+  // two moments: early, while dialogs and springs still move, and once they have settled
+  const shots = [];
+  for (let f = 0; f < 40; f++) {
+    x.inst_frame(inst, 1 / 60, f === 3 || f === 39 ? 1 : 0);
+    if (f === 3 || f === 39) { const px = mod.pixels(inst); shots.push({ w: px.w, h: px.h, data: new Uint8Array(px.data) }); }
+  }
+  return shots;
 }
 
 let failed = 0;
@@ -57,7 +61,12 @@ for (const f of readdirSync(path.join(HERE, 'samples')).filter((f) => f.endsWith
   // a host for the generated code: web_host.h's content functions and empty event handlers
   const prefix = g.header.match(/void (\w+)_ui_init/)[1];
   const handlers = [...g.header.matchAll(/^void (\w+)\(cui_ctx \*ui, \w+ \*s\);$/gm)].filter((m) => m[1] !== `${prefix}_ui_build`).map((m) => `void ${m[1]}(cui_ctx *ui, ${prefix}_ui *s) { (void)ui; (void)s; }`);
-  writeFileSync(path.join(OUT, `${base}_host.c`), `#include "${g.headerName}"\n#include "../../../../web/host/web_host.h"\n${handlers.join('\n')}\n` +
+  // tables whose data comes from code: functions that give the sample rows, as the preview shows them
+  const cstr = (t) => JSON.stringify(t).replace(/[^\x20-\x7e]/g, (ch) => [...Buffer.from(ch)].map((b) => '\\' + b.toString(8).padStart(3, '0')).join(''));
+  const data = g.dataFunctions.map((d) => `static const char *const ${d.cell}_data[${Math.max(d.sample.length, 1)}][${d.columns}] = { ${d.sample.length ? d.sample.map((r) => `{ ${r.map(cstr).join(', ')} }`).join(', ') : '{ "" }'} };\n` +
+    `int ${d.rows}(${prefix}_ui *s) { (void)s; return ${d.sample.length}; }\n` +
+    `const char *${d.cell}(${prefix}_ui *s, int row, int column) { (void)s; return ${d.cell}_data[row][column]; }`);
+  writeFileSync(path.join(OUT, `${base}_host.c`), `#include "${g.headerName}"\n#include "../../../../web/host/web_host.h"\n${handlers.join('\n')}\n${data.join('\n')}\n` +
     `static ${prefix}_ui state; static int ready;\n` +
     'int web_content_count(void) { return 1; }\nconst char *web_content_name(int i) { (void)i; return "generated"; }\n' +
     'float web_content_width(int i) { (void)i; return 480; }\nfloat web_content_height(int i) { (void)i; return 360; }\n' +
@@ -69,11 +78,16 @@ for (const f of readdirSync(path.join(HERE, 'samples')).filter((f) => f.endsWith
     for (const c of [g.sourceName, `${base}_host.c`]) execFileSync('clang', [...CFLAGS, '-c', path.join(OUT, c), '-o', path.join(OUT, c + '.o')], { stdio: 'pipe' });
     execFileSync('wasm-ld', [...LDFLAGS, path.join(OUT, g.sourceName + '.o'), path.join(OUT, `${base}_host.c.o`), ...objs, '-o', wasm], { stdio: 'pipe' });
   } catch (e) { failed++; console.log(`FAIL ${f}: build\n${e.stderr}`); continue; }
-  const a = await render(designer, doc, true), b = await render(readFileSync(wasm), doc, false);
-  let diff = 0;
-  for (let i = 0; i < a.data.length; i++) if (a.data[i] !== b.data[i]) diff++;
-  const same = a.w === b.w && a.h === b.h && diff === 0;
+  const as = await render(designer, doc, true), bs = await render(readFileSync(wasm), doc, false);
+  const diffs = as.map((a, k) => {
+    const b = bs[k];
+    if (a.w !== b.w || a.h !== b.h) return Infinity;
+    let d = 0;
+    for (let i = 0; i < a.data.length; i++) if (a.data[i] !== b.data[i]) d++;
+    return d;
+  });
+  const same = diffs.every((d) => d === 0);
   if (!same) failed++;
-  console.log(`${same ? 'ok  ' : 'FAIL'} ${f}: ${a.w}x${a.h}, ${diff} differing bytes between the preview and the generated code`);
+  console.log(`${same ? 'ok  ' : 'FAIL'} ${f}: ${as[0].w}x${as[0].h}, ${diffs.join(' and ')} differing bytes at frames 4 and 40 between the preview and the generated code`);
 }
 process.exit(failed ? 1 : 0);

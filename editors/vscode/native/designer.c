@@ -10,32 +10,32 @@
 
 #define DSG_EXPORT(name) __attribute__((export_name(#name)))
 
-enum { DSG_MAX_NODES = 1024, DSG_MAX_PROPS = 32, DSG_MAX_ITEMS = 32, DSG_MAX_EVENTS = 64, DSG_TEXT_CAP = 256 };
+enum { DSG_MAX_NODES = 1024, DSG_MAX_PROPS = 32, DSG_MAX_ITEMS = 32, DSG_MAX_EVENTS = 64, DSG_TEXT_CAP = 256, DSG_MAX_COLUMNS = 16 };
 
 typedef enum dsg_kind {
     /* containers first: dsg_is_container relies on it */
-    DSG_COLUMN, DSG_ROW, DSG_GRID, DSG_CARD, DSG_SCROLL, DSG_ACCORDION, DSG_SPLIT,
+    DSG_COLUMN, DSG_ROW, DSG_GRID, DSG_CARD, DSG_SCROLL, DSG_ACCORDION, DSG_SPLIT, DSG_DIALOG, DSG_SHEET, DSG_DIALOG_FOOTER,
     DSG_HEADING, DSG_TEXT, DSG_LINK, DSG_KBD, DSG_ICON, DSG_BUTTON, DSG_ICON_BUTTON,
     DSG_CHECKBOX, DSG_SWITCH, DSG_SLIDER, DSG_INPUT, DSG_TEXTAREA,
     DSG_SELECT, DSG_SEGMENTED, DSG_TABS, DSG_RADIO_GROUP,
     DSG_SEARCH, DSG_NUMBER, DSG_CHIP, DSG_RATING, DSG_RANGE_SLIDER, DSG_DATE_PICKER,
     DSG_NAV_SECTION, DSG_NAV_ITEM, DSG_BREADCRUMB, DSG_PAGINATION, DSG_STEPPER,
     DSG_PROGRESS, DSG_BADGE, DSG_ALERT, DSG_SPINNER, DSG_SKELETON, DSG_EMPTY_STATE,
-    DSG_AVATAR, DSG_LIST_ITEM, DSG_METER, DSG_SEPARATOR, DSG_SPACER,
+    DSG_AVATAR, DSG_LIST_ITEM, DSG_METER, DSG_SEPARATOR, DSG_SPACER, DSG_TABLE, DSG_DATA_GRID,
     DSG_KIND_COUNT
 } dsg_kind;
-#define dsg_is_container(k) ((k) <= DSG_SPLIT)
+#define dsg_is_container(k) ((k) <= DSG_DIALOG_FOOTER)
 
 /* The names media/components.js uses for the same kinds. */
 static const char *const dsg_kind_names[DSG_KIND_COUNT] = {
-    "column", "row", "grid", "card", "scroll", "accordion", "split",
+    "column", "row", "grid", "card", "scroll", "accordion", "split", "dialog", "sheet", "dialog_footer",
     "heading", "text", "link", "kbd", "icon", "button", "icon_button",
     "checkbox", "switch", "slider", "input", "textarea",
     "select", "segmented", "tabs", "radio_group",
     "search", "number", "chip", "rating", "range_slider", "date_picker",
     "nav_section", "nav_item", "breadcrumb", "pagination", "stepper",
     "progress", "badge", "alert", "spinner", "skeleton", "empty_state",
-    "avatar", "list_item", "meter", "separator", "spacer",
+    "avatar", "list_item", "meter", "separator", "spacer", "table", "data_grid",
 };
 
 typedef struct dsg_prop { char *key, *value; } dsg_prop;
@@ -55,6 +55,13 @@ typedef struct dsg_node {
     double number;
     cui_date date;
     char text[DSG_TEXT_CAP];
+    bool shown;                           /* a dialog or sheet that was open in the latest frame */
+    /* a table's "columns" and "rows", split in place */
+    char *columns_text, *rows_text;
+    int column_count, row_count;
+    cui_table_column table_columns[DSG_MAX_COLUMNS];
+    cui_grid_column grid_columns[DSG_MAX_COLUMNS];
+    const char **cells;                   /* row_count * column_count, "" where a row is short */
     int ui_node;                          /* its first node in the latest frame, or -1 */
 } dsg_node;
 
@@ -65,6 +72,7 @@ static cui_ctx *dsg_last_ui;              /* the context of the latest frame, fo
 static int dsg_events[DSG_MAX_EVENTS];    /* nodes whose event fired, oldest first */
 static int dsg_event_count;
 static float dsg_rect_out[4];
+static int dsg_selected = -1;             /* the node selected in the designer, which shows the dialog it is in */
 
 typedef struct dsg_icon { const char *name, *glyph; } dsg_icon;
 static const dsg_icon dsg_icons[] = {
@@ -77,6 +85,9 @@ enum { DSG_ICON_COUNT = (int)(sizeof dsg_icons / sizeof dsg_icons[0]) };
 static void dsg_free_node(dsg_node *n) {
     for (int k = 0; k < n->prop_count; k++) { free(n->props[k].key); free(n->props[k].value); }
     free(n->items_text);
+    free(n->columns_text);
+    free(n->rows_text);
+    free(n->cells);
     memset(n, 0, sizeof *n);
 }
 
@@ -192,6 +203,74 @@ static cui_date dsg_parse_date(const char *v) {
     return d;
 }
 
+/* Leading and trailing blanks off, in place. */
+static char *dsg_trim(char *s) {
+    while (*s == ' ' || *s == '\t' || *s == '\r') s++;
+    size_t len = strlen(s);
+    while (len && (s[len - 1] == ' ' || s[len - 1] == '\t' || s[len - 1] == '\r')) s[--len] = 0;
+    return s;
+}
+
+/* One line of "columns": "Title, 120, right". After the title come a width
+ * (points, "fill" or a percentage) and an alignment, in any order.
+ * media/codegen.js parseColumns reads it the same way. */
+static void dsg_parse_column(char *line, cui_table_column *t, cui_grid_column *g) {
+    memset(t, 0, sizeof *t);
+    memset(g, 0, sizeof *g);
+    for (int k = 0; line; k++) {
+        char *comma = strchr(line, ',');
+        if (comma) *comma = 0;
+        char *v = dsg_trim(line);
+        if (k == 0) t->title = g->title = v;
+        else if (strcmp(v, "left") == 0) t->align = g->align = CUI_TEXT_LEFT;
+        else if (strcmp(v, "right") == 0) t->align = g->align = CUI_TEXT_RIGHT;
+        else if (strcmp(v, "center") == 0) t->align = g->align = CUI_TEXT_CENTER;
+        else if (strcmp(v, "end") == 0) t->align = g->align = CUI_TEXT_END;
+        else if (strcmp(v, "fill") == 0) t->width = CUI_FILL;
+        else if (*v) {
+            char *end;
+            float x = strtof(v, &end);
+            if (end != v && *end == '%') t->width = CUI_PCT(x);
+            else if (end != v) { t->width = CUI_PX(x); g->width = x; }
+        }
+        line = comma ? comma + 1 : NULL;
+    }
+}
+
+/* "columns" one per line, "rows" one per line with cells between "|"; blank lines are skipped. */
+static void dsg_parse_table(dsg_node *n) {
+    free(n->columns_text); free(n->rows_text); free(n->cells);
+    n->columns_text = strdup(dsg_str(n, "columns"));
+    n->rows_text = strdup(dsg_str(n, "rows"));
+    n->column_count = n->row_count = 0;
+    n->cells = NULL;
+    for (char *line = n->columns_text; line && n->column_count < DSG_MAX_COLUMNS;) {
+        char *nl = strchr(line, '\n');
+        if (nl) *nl = 0;
+        if (*dsg_trim(line)) { dsg_parse_column(line, &n->table_columns[n->column_count], &n->grid_columns[n->column_count]); n->column_count++; }
+        line = nl ? nl + 1 : NULL;
+    }
+    int lines = 1;
+    for (const char *c = n->rows_text; *c; c++) lines += *c == '\n';
+    n->cells = calloc((size_t)lines * (size_t)(n->column_count ? n->column_count : 1), sizeof *n->cells);
+    for (char *line = n->rows_text; line;) {
+        char *nl = strchr(line, '\n');
+        if (nl) *nl = 0;
+        char *row = dsg_trim(line);
+        if (*row && n->column_count) {
+            const char **out = n->cells + (size_t)n->row_count * (size_t)n->column_count;
+            for (int c = 0; c < n->column_count; c++) {
+                char *bar = row ? strchr(row, '|') : NULL;
+                if (bar) *bar = 0;
+                out[c] = row ? dsg_trim(row) : "";
+                row = bar ? bar + 1 : NULL;
+            }
+            n->row_count++;
+        }
+        line = nl ? nl + 1 : NULL;
+    }
+}
+
 /* Sets the live values from the document, after it was sent in. */
 DSG_EXPORT(dsg_commit) void dsg_commit(void) {
     for (int i = 0; i < dsg_node_count; i++) {
@@ -199,7 +278,8 @@ DSG_EXPORT(dsg_commit) void dsg_commit(void) {
         n->on = dsg_flag(n, "value");
         n->value = n->kind == DSG_RANGE_SLIDER ? dsg_num(n, "low", 0) : dsg_num(n, "value", 0);
         n->high = dsg_num(n, "high", 0);
-        n->index = (int)dsg_num(n, "value", 0);
+        n->index = (int)dsg_num(n, "value", n->kind == DSG_TABLE || n->kind == DSG_DATA_GRID ? -1 : 0);
+        if (n->kind == DSG_TABLE || n->kind == DSG_DATA_GRID) dsg_parse_table(n);
         const char *v = dsg_get(n, "value");
         n->number = v && *v ? strtod(v, NULL) : 0;
         n->date = dsg_parse_date(v);
@@ -236,6 +316,27 @@ static void dsg_event(int i) {
     if (dsg_event_count < DSG_MAX_EVENTS) dsg_events[dsg_event_count++] = i;
 }
 
+/* A button's "opens" and "closes": the state field of a dialog or sheet. */
+static void dsg_open_by_field(const dsg_node *n, const char *key, bool open) {
+    const char *field = dsg_opt(n, key);
+    if (!field) return;
+    for (int k = 0; k < dsg_node_count; k++)
+        if ((dsg_nodes[k].kind == DSG_DIALOG || dsg_nodes[k].kind == DSG_SHEET) && strcmp(dsg_str(&dsg_nodes[k], "bind"), field) == 0)
+            dsg_nodes[k].on = open;
+}
+static void dsg_clicked(int i) {
+    dsg_open_by_field(&dsg_nodes[i], "opens", true);
+    dsg_open_by_field(&dsg_nodes[i], "closes", false);
+    dsg_event(i);
+}
+
+/* Is the designer's selection n or inside it? */
+static bool dsg_selection_inside(const dsg_node *n) {
+    for (int k = dsg_selected; k >= 0 && k < dsg_node_count; k = dsg_nodes[k].parent)
+        if (&dsg_nodes[k] == n) return true;
+    return false;
+}
+
 /* The controls with a state need an id; the generated code uses the same one. */
 static const char *dsg_id(const dsg_node *n) { return dsg_str(n, "bind"); }
 
@@ -270,7 +371,44 @@ static void dsg_drop_room(cui_ctx *ui, const dsg_node *n) {
     if (dsg_design_mode && n->first < 0) cui_gap(ui, 40);
 }
 
+/* A dialog or sheet: open while its state says so, and in design mode also while
+ * the selection is in it, so it can be edited. */
+static void dsg_build_modal(cui_ctx *ui, dsg_node *n) {
+    bool forced = true, was = n->on;
+    bool *open = dsg_design_mode && dsg_selection_inside(n) ? &forced : &n->on;
+    if (n->kind == DSG_DIALOG) {
+        cui_dialog_opts o = { 0 };
+        o.description = dsg_opt(n, "description");
+        o.width = dsg_num(n, "width", 0);
+        o.no_close_button = dsg_flag(n, "no_close_button");
+        o.persistent = dsg_flag(n, "persistent");
+        o.draggable = dsg_flag(n, "draggable");
+        n->shown = cui_dialog_begin(ui, dsg_str(n, "title"), open, &o);
+    } else {
+        static const char *const sides[] = { "right", "left", "bottom", "top" };
+        cui_sheet_opts o = { 0 };
+        o.side = (cui_side)DSG_ENUM(n, "side", sides);
+        o.size = dsg_num(n, "size", 0);
+        o.description = dsg_opt(n, "description");
+        n->shown = cui_sheet_begin(ui, dsg_str(n, "title"), open, &o);
+    }
+    if (n->shown) {
+        dsg_drop_room(ui, n);
+        dsg_build_children(ui, n);
+        if (n->kind == DSG_DIALOG) cui_dialog_end(ui); else cui_sheet_end(ui);
+    }
+    if (n->on != was) dsg_event((int)(n - dsg_nodes));
+}
+
 static void dsg_build_container(cui_ctx *ui, dsg_node *n) {
+    if (n->kind == DSG_DIALOG || n->kind == DSG_SHEET) { dsg_build_modal(ui, n); return; }
+    if (n->kind == DSG_DIALOG_FOOTER) {
+        cui_dialog_footer_begin(ui);
+        dsg_drop_room(ui, n);
+        dsg_build_children(ui, n);
+        cui_dialog_footer_end(ui);
+        return;
+    }
     if (n->kind == DSG_SCROLL) {
         cui_scroll_opts o = { 0 };
         o.width = dsg_size(n, "width");
@@ -350,7 +488,7 @@ static void dsg_build_control(cui_ctx *ui, int i) {
         else cui_text(ui, t);
         break;
     }
-    case DSG_LINK: if (cui_link(ui, dsg_str(n, "text"))) dsg_event(i); break;
+    case DSG_LINK: if (cui_link(ui, dsg_str(n, "text"))) dsg_clicked(i); break;
     case DSG_KBD: cui_kbd(ui, dsg_str(n, "text")); break;
     case DSG_ICON: {
         const char *g = dsg_icon_glyph(n, "icon");
@@ -374,7 +512,7 @@ static void dsg_build_control(cui_ctx *ui, int i) {
             const char *g = dsg_icon_glyph(n, "icon");
             clicked = cui_icon_button_ex(ui, g ? g : CUI_ICON_PLUS, &o);
         }
-        if (clicked) dsg_event(i);
+        if (clicked) dsg_clicked(i);
         break;
     }
     case DSG_CHECKBOX:
@@ -529,6 +667,39 @@ static void dsg_build_control(cui_ctx *ui, int i) {
         if (cui_list_item_ex(ui, dsg_str(n, "title"), &o)) dsg_event(i);
         break;
     }
+    case DSG_TABLE: {
+        if (!n->column_count) break;
+        cui_table_opts o = { 0 };
+        o.height = dsg_size(n, "height");
+        o.striped = dsg_flag(n, "striped");
+        o.compact = dsg_flag(n, "compact");
+        o.selectable = dsg_flag(n, "selectable");
+        if (cui_table_begin_ex(ui, dsg_id(n), n->table_columns, n->column_count, &o)) {
+            for (int r = 0; r < n->row_count; r++) {
+                if (cui_table_row(ui, n->index == r)) { n->index = r; dsg_event(i); }
+                for (int c = 0; c < n->column_count; c++) cui_table_cell_text(ui, n->cells[r * n->column_count + c]);
+            }
+            cui_table_end(ui);
+        }
+        break;
+    }
+    case DSG_DATA_GRID: {
+        if (!n->column_count) break;
+        cui_grid_opts o = { 0 };
+        o.width = dsg_size(n, "width");
+        o.height = dsg_size(n, "height");
+        o.row_height = dsg_num(n, "row_height", 0);
+        o.striped = dsg_flag(n, "striped");
+        int first = 0, last = 0;
+        if (cui_data_grid_begin_ex(ui, dsg_id(n), n->grid_columns, n->column_count, n->row_count, &first, &last, &o)) {
+            for (int r = first; r < last; r++) {
+                if (cui_data_grid_row(ui, r)) { n->index = r; dsg_event(i); }
+                for (int c = 0; c < n->column_count; c++) cui_data_grid_cell_text(ui, n->cells[r * n->column_count + c]);
+            }
+            cui_data_grid_end(ui);
+        }
+        break;
+    }
     case DSG_METER: cui_meter(ui, dsg_str(n, "label"), dsg_num(n, "used", 0), dsg_num(n, "total", 0), dsg_str(n, "unit")); break;
     case DSG_PROGRESS: {
         cui_progress_opts o = { 0 };
@@ -567,6 +738,8 @@ static void dsg_build_node(cui_ctx *ui, int i) {
     if (dsg_is_container(n->kind)) dsg_build_container(ui, n);
     else dsg_build_control(ui, i);
     n->ui_node = ui->node_count > first ? first : -1;
+    /* a dialog's first node is the scrim over the whole window; select its panel instead */
+    if ((n->kind == DSG_DIALOG || n->kind == DSG_SHEET) && n->shown && ui->nodes[first].first >= 0) n->ui_node = ui->nodes[first].first;
 }
 
 /* ---------------------------------------------------------------- web_host.h */
@@ -582,13 +755,16 @@ void web_content_input(int i, cui_ctx *ui, int f) { (void)i; (void)ui; (void)f; 
 void web_content_build(int i, cui_ctx *ui, int f) {
     (void)i; (void)f;
     dsg_last_ui = ui;
-    for (int k = 0; k < dsg_node_count; k++) dsg_nodes[k].ui_node = -1;
+    for (int k = 0; k < dsg_node_count; k++) { dsg_nodes[k].ui_node = -1; dsg_nodes[k].shown = false; }
     if (dsg_node_count > 0) dsg_build_node(ui, 0);
 }
 
 /* ---------------------------------------------------------------- queries */
 
 DSG_EXPORT(dsg_set_design_mode) void dsg_set_design_mode(int on) { dsg_design_mode = on != 0; }
+DSG_EXPORT(dsg_set_selected) void dsg_set_selected(int i) { dsg_selected = i; }
+/* Was dialog or sheet i open in the latest frame? */
+DSG_EXPORT(dsg_shown) int dsg_shown(int i) { return i >= 0 && i < dsg_node_count && dsg_nodes[i].shown; }
 
 /* The rectangle of node i in the latest frame (x, y, w, h in points), or NULL
  * when it was not built. */

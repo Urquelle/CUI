@@ -9,11 +9,13 @@ common components, not all of CUI.
 
 ## What it does
 
-- **Palette**: 45 kinds in six groups. Drag a component onto the preview, or click it to add it after the selection.
+- **Palette**: 50 kinds in eight groups. Drag a component onto the preview, or click it to add it after the selection.
   - *Layout*: column, row and grid (with a theme background, border and radius), scroll area, accordion, split view (the first child is the first pane), card, separator, spacer.
+  - *Overlays*: dialog, dialog footer (the dialog's button row) and sheet. A dialog shows in the designer while it or something in it is selected; in *Try it* and in the app it opens when its state field is true. A button, icon button or link opens or closes one with its *Opens* and *Closes* properties.
   - *Text*: heading, text, link, key cap, icon.
   - *Controls*: button, icon button, checkbox, switch, slider, text field, text area, select, segmented control, tabs, radio group, search, number field, chip, rating, range slider, date picker.
   - *Navigation*: nav section, nav item, breadcrumb, pagination, stepper.
+  - *Data*: table and data grid (the grid builds only its visible rows). Columns are lines like `Size, 90, right` (a title, then a width and an alignment); rows are lines of cells between `|`. With *Data* set to *code*, the generated header declares two functions that give the rows, and the preview keeps showing the sample rows.
   - *Feedback*: progress, badge, alert, spinner, skeleton, empty state.
   - *Display*: avatar, list item, meter.
 - **Preview**: the real library compiled to WebAssembly and drawn by its software renderer. *Fit* zooms a large design out to the editor's size; the other zoom levels are fixed. It is not an imitation: what you see is what the generated code draws (see [Checks](#checks)). In **Design** mode you select, drag and move. In **Try it** mode the preview takes the mouse and keyboard like the app, and the status line names the event handler that a click or change would call.
@@ -54,8 +56,16 @@ int main(void) {
 
 A control's state field is its *State field* property, or a name made from its
 label. An event handler is called when its *On click*, *On change* or
-*On Enter* property names a function. Do not edit the generated files: the next
-save overwrites them.
+*On Enter* property names a function. A dialog's state field says whether it is
+open; a button with *Opens* sets it. A table's state field is its selected row
+(-1 for none). For a table whose *Data* is *code*, the header also declares
+
+```c
+int team_file_rows(team_ui *s);                                 /* how many rows */
+const char *team_file_cell(team_ui *s, int row, int column);   /* the text of one cell */
+```
+
+Do not edit the generated files: the next save overwrites them.
 
 ## Build and run
 
@@ -95,7 +105,8 @@ node test/smoke.mjs                # the preview module builds a tree and report
 
 ## Not done yet
 
-- Most of CUI's 210 components: tables, trees, charts, dialogs, sheets, popovers, menus, toolbars, color pickers, images and the rest. The ones that need data from code (tables, charts, images) need a way to name that data first.
+- Most of CUI's 210 components: trees, tree tables, charts, popovers, menus, toasts, toolbars, color pickers, images and the rest.
+- Tables show text only: no components in cells, no sortable headers, no editable cells, and no checkbox selection in the data grid.
 - Dynamic text (a label that shows a value from the state), lists built from data, and showing parts of the UI only under a condition.
 - Reading hand-written C back into a design. The generator writes in one direction.
 - Packaging as a `.vsix` and building in CI.

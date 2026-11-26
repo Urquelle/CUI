@@ -1,0 +1,37 @@
+{
+  "cui_designer": 1,
+  "name": "team",
+  "preview": { "width": 820, "height": 600, "theme": "light", "accent": "blue" },
+  "root": {
+    "id": "n1", "type": "column", "props": { "pad": 24, "gap": 14, "width": "fill", "height": "fill" },
+    "children": [
+      { "id": "n2", "type": "row", "props": { "gap": 8, "width": "fill" }, "children": [
+        { "id": "n3", "type": "heading", "props": { "text": "Team", "level": "2" } },
+        { "id": "n4", "type": "spacer", "props": {} },
+        { "id": "n5", "type": "button", "props": { "label": "Details", "variant": "outline", "opens": "details" } },
+        { "id": "n6", "type": "button", "props": { "label": "Einladen", "variant": "primary", "icon": "plus", "opens": "invite" } }
+      ] },
+      { "id": "n7", "type": "table", "props": {
+        "columns": "Name\nE-Mail, 40%\nRolle, 110\nAktiv, 70, right",
+        "rows": "Ada Lovelace | ada@example.com | Admin | ja\nGrace Hopper | grace@example.com | Editor | ja\nAlan Turing | alan@example.com | Leser | nein\nKatherine Johnson | katherine@example.com | Editor",
+        "value": 1, "striped": true, "selectable": true, "bind": "member", "on_click": "team_member_selected" } },
+      { "id": "n8", "type": "text", "props": { "text": "Dateien", "style": "label" } },
+      { "id": "n9", "type": "data_grid", "props": {
+        "columns": "Datei, 240\nGröße, 90, right\nGeändert, 140",
+        "rows": "bericht.pdf | 2,1 MB | Heute\nfoto.jpg | 4,8 MB | Gestern\nnotizen.txt | 12 KB | Montag\nplan.xlsx | 88 KB | 12. Nov.",
+        "data": "code", "width": "fill", "height": "180", "striped": true, "bind": "file" } },
+      { "id": "n10", "type": "dialog", "props": { "title": "Person einladen", "description": "Wir schicken eine Einladung per E-Mail.", "value": true, "bind": "invite" }, "children": [
+        { "id": "n11", "type": "input", "props": { "label": "E-Mail", "placeholder": "name@example.com", "width": "fill", "bind": "invite_email" } },
+        { "id": "n12", "type": "select", "props": { "label": "Rolle", "items": "Leser\nEditor\nAdmin", "width": "fill", "bind": "invite_role" } },
+        { "id": "n13", "type": "dialog_footer", "props": {}, "children": [
+          { "id": "n14", "type": "button", "props": { "label": "Abbrechen", "variant": "ghost", "closes": "invite" } },
+          { "id": "n15", "type": "button", "props": { "label": "Einladen", "variant": "primary", "closes": "invite", "on_click": "team_send_invite" } }
+        ] }
+      ] },
+      { "id": "n16", "type": "sheet", "props": { "title": "Details", "description": "Zur ausgewählten Person", "bind": "details" }, "children": [
+        { "id": "n17", "type": "avatar", "props": { "name": "Grace Hopper", "size": 48 } },
+        { "id": "n18", "type": "switch", "props": { "label": "Benachrichtigungen", "value": true } }
+      ] }
+    ]
+  }
+}

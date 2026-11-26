@@ -107,17 +107,53 @@
     return out;
   }
 
+  // every non-empty line `levels` steps of four spaces deeper
+  const indent = (text, levels) => text.split('\n').map((l) => (l ? '    '.repeat(levels) + l : l)).join('\n');
+
   function items(props) {
     const t = props.items || '';
     return t === '' ? [] : t.split('\n');
+  }
+
+  // A table's "columns": one per line, "Title, 120, right". After the title come a width
+  // (points, "fill" or a percentage) and an alignment, in any order. native/designer.c
+  // dsg_parse_column reads it the same way.
+  const ALIGNS = { left: 'CUI_TEXT_LEFT', right: 'CUI_TEXT_RIGHT', center: 'CUI_TEXT_CENTER', end: 'CUI_TEXT_END' };
+  function parseColumns(text) {
+    return String(text || '').split('\n').filter((l) => l.trim()).slice(0, 16).map((line) => {
+      const [title, ...rest] = line.split(',').map((t) => t.trim());
+      const col = { title, size: null, points: 0, align: null };
+      for (const t of rest) {
+        if (ALIGNS[t]) col.align = ALIGNS[t];
+        else if (t === 'fill') col.size = '{ CUI_SIZE_GROW, 1 }';
+        else {
+          const m = /^([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)(.*)$/.exec(t);   // a number, as strtof reads it
+          if (!m) continue;
+          const x = +m[1];
+          if (m[2].startsWith('%')) col.size = `{ CUI_SIZE_PERCENT, ${x} }`;
+          else { col.size = `{ CUI_SIZE_FIXED, ${x} }`; col.points = x; }
+        }
+      }
+      return col;
+    });
+  }
+  // A table's "rows": one per line, cells between "|", as many cells as columns.
+  function parseRows(text, columns) {
+    if (!columns) return [];
+    return String(text || '').split('\n').filter((l) => l.trim()).map((line) => {
+      const cells = line.trim().split('|').map((c) => c.trim());
+      return Array.from({ length: columns }, (_, i) => cells[i] ?? '');   // cells past the last column are dropped
+    });
   }
 
   function generate(doc, baseName) {
     const prefix = ident(doc.name || baseName, 'screen');
     const type = `${prefix}_ui`;
     const names = resolveNames(doc);
-    const fields = [], arrays = [], handlers = new Map(), inits = [];
+    const fields = [], arrays = [], handlers = new Map(), inits = [], dataFunctions = [];
     let usesIcons = false, usesText = false;
+    const modals = new Set();   // the state fields "opens" and "closes" may name
+    walk(doc.root, (n) => { if (C.byType[n.type] && C.byType[n.type].modal) modals.add(names.get(n.id)); });
 
     const handlerCall = (p, key) => {
       const h = p[key];
@@ -135,9 +171,17 @@
       if (o.includes('CUI_ICON_') || (n.type === 'icon_button')) usesIcons = true;
       const field = names.get(n.id);
       const ref = field ? `s->${field}` : null;
-      const wrap = (call, key, test) => {   // "if (call) handler(ui, s);" when the node has a handler
+      // "if (call) ..." with what the event does: open or close a dialog, store a value, call the handler
+      const wrap = (call, key, test, first = []) => {
+        const acts = [...first];
+        if (modals.has(p.opens)) acts.push(`s->${p.opens} = true;`);
+        if (modals.has(p.closes)) acts.push(`s->${p.closes} = false;`);
         const h = handlerCall(p, key);
-        return h ? `${pad}if (${test ? test(call) : call}) ${h}\n` : `${pad}${call};\n`;
+        if (h) acts.push(h);
+        const cond = test ? test(call) : call;
+        if (!acts.length) return `${pad}${call};\n`;
+        if (acts.length === 1) return `${pad}if (${cond}) ${acts[0]}\n`;
+        return `${pad}if (${cond}) {\n${acts.map((a) => `${pad}    ${a}\n`).join('')}${pad}}\n`;
       };
       const itemsArg = () => {
         const list = items(p);
@@ -156,11 +200,12 @@
       }
       if (spec.container) {
         let head;
-        if (n.type === 'accordion') {
+        if (n.type === 'accordion' || spec.modal) {
           fields.push(`    bool ${field};`);
           if (p.value === true) inits.push(`    s->${field} = true;`);
-          head = `cui_accordion(ui, ${str(p.title || '')}, &${ref})`;
-        } else if (n.type === 'grid') head = `cui_box(ui, .dir = CUI_GRID${o})`;
+          head = `cui_${n.type}(ui, ${str(p.title || '')}, &${ref}${spec.modal ? o : ''})`;
+        } else if (n.type === 'dialog_footer') head = 'cui_dialog_footer(ui)';
+        else if (n.type === 'grid') head = `cui_box(ui, .dir = CUI_GRID${o})`;
         else head = `cui_${n.type}(ui${o})`;
         const kids = (n.children || []).map((c) => emit(c, depth + 1)).join('');
         return kids ? `${pad}${head} {\n${kids}${pad}}\n` : `${pad}${head} {}\n`;
@@ -250,6 +295,46 @@
         case 'avatar': return `${pad}cui_avatar(ui, ${str(p.name || '')}${o});\n`;
         case 'list_item': return wrap(`cui_list_item(ui, ${str(p.title || '')}${o})`, 'on_click');
         case 'meter': return `${pad}cui_meter(ui, ${str(p.label || '')}, ${floatLit(p.used ?? 0)}, ${floatLit(p.total ?? 0)}, ${str(p.unit || '')});\n`;
+        case 'table':
+        case 'data_grid': {
+          const grid = n.type === 'data_grid';
+          const cols = parseColumns(p.columns), rows = parseRows(p.rows, cols.length);
+          if (!cols.length) return `${pad}/* ${spec.title.toLowerCase()} "${field}": no columns */\n`;
+          fields.push(`    int ${field};${' '.repeat(Math.max(1, 20 - field.length))}/* the ${grid ? 'clicked' : 'selected'} row, -1 for none */`);
+          const sel = p.value === undefined || p.value === '' ? -1 : Math.trunc(Number(p.value));
+          if (sel) inits.push(`    s->${field} = ${sel};`);
+          const colArr = `${prefix}_${field}_columns`;
+          const colInit = (c) => grid
+            ? `{ .title = ${str(c.title)}${c.points ? `, .width = ${num(c.points)}` : ''}${c.align ? `, .align = ${c.align}` : ''} }`
+            : `{ .title = ${str(c.title)}${c.size ? `, .width = ${c.size}` : ''}${c.align ? `, .align = ${c.align}` : ''} }`;
+          arrays.push(`static const ${grid ? 'cui_grid_column' : 'cui_table_column'} ${colArr}[] = {\n${cols.map((c) => `    ${colInit(c)},`).join('\n')}\n};`);
+          let count, cell;
+          if (p.data === 'code') {
+            const fn = `${prefix}_${field}`;
+            dataFunctions.push({ rows: `${fn}_rows`, cell: `${fn}_cell`, field, columns: cols.length, sample: rows });
+            count = `${fn}_rows(s)`;
+            cell = `${fn}_cell(s, r, c)`;
+          } else {
+            const cellArr = `${prefix}_${field}_cells`;
+            const cellRows = rows.length ? rows.map((r) => `    { ${r.map(str).join(', ')} },`).join('\n') : `    { ${str('')} },`;
+            arrays.push(`static const char *const ${cellArr}[${Math.max(rows.length, 1)}][${cols.length}] = {\n${cellRows}\n};`);
+            count = String(rows.length);
+            cell = `${cellArr}[r][c]`;
+          }
+          // the row loop's body, `levels` deeper than this node
+          const body = (rowCall, levels) => indent(wrap(rowCall, 'on_click', null, [`s->${field} = r;`]) +
+            `${pad}for (int c = 0; c < ${cols.length}; c++) cui_${grid ? 'data_grid' : 'table'}_cell_text(ui, ${cell});\n`, levels);
+          const q = (levels) => pad + '    '.repeat(levels);
+          if (!grid) {
+            return `${pad}cui_table(ui, ${str(field)}, ${colArr}, ${cols.length}${o}) {\n` +
+              `${q(1)}for (int r = 0, rows = ${count}; r < rows; r++) {\n` + body(`cui_table_row(ui, s->${field} == r)`, 2) +
+              `${q(1)}}\n${pad}}\n`;
+          }
+          return `${pad}{\n${q(1)}int first = 0, last = 0;\n` +
+            `${q(1)}if (cui_data_grid_begin(ui, ${str(field)}, ${colArr}, ${cols.length}, ${count}, &first, &last${o})) {\n` +
+            `${q(2)}for (int r = first; r < last; r++) {\n` + body('cui_data_grid_row(ui, r)', 3) +
+            `${q(2)}}\n${q(2)}cui_data_grid_end(ui);\n${q(1)}}\n${pad}}\n`;
+        }
         case 'progress': return `${pad}cui_progress(ui, ${floatLit(p.value ?? 0)}${o});\n`;
         case 'badge': return `${pad}cui_badge(ui, ${str(p.text || '')}${o});\n`;
         case 'alert': return `${pad}cui_alert(ui, ${str(p.title || '')}${o});\n`;
@@ -268,6 +353,8 @@
       `typedef struct ${type} {\n${fields.length ? fields.join('\n') : '    int unused;'}\n} ${type};\n\n` +
       (handlers.size ? `/* Events: called from ${prefix}_ui_build when they happen. */\n` +
         [...handlers.keys()].map((h) => `void ${h}(cui_ctx *ui, ${type} *s);`).join('\n') + '\n\n' : '') +
+      (dataFunctions.length ? '/* Data: the rows of the tables whose data comes from code. Write these too. */\n' +
+        dataFunctions.map((d) => `int ${d.rows}(${type} *s);\nconst char *${d.cell}(${type} *s, int row, int column);`).join('\n') + '\n\n' : '') +
       `/* Sets the values chosen in the designer. */\nvoid ${prefix}_ui_init(${type} *s);\n` +
       `/* Builds the UI; call it every frame. */\nvoid ${prefix}_ui_build(cui_ctx *ui, ${type} *s);\n\n#endif\n`;
 
@@ -279,7 +366,7 @@
       `void ${prefix}_ui_init(${type} *s) {\n    memset(s, 0, sizeof *s);\n${inits.join('\n')}${inits.length ? '\n' : ''}}\n\n` +
       `void ${prefix}_ui_build(cui_ctx *ui, ${type} *s) {\n${body}}\n`;
 
-    return { headerName, sourceName, header, source };
+    return { headerName, sourceName, header, source, dataFunctions };
   }
 
   // A new document: a padded column that fills the window.
@@ -292,5 +379,5 @@
     };
   }
 
-  return { generate, resolveNames, ident, isIdent, newDocument, walk };
+  return { generate, resolveNames, ident, isIdent, newDocument, walk, parseColumns, parseRows };
 });

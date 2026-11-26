@@ -90,6 +90,7 @@ body.test #overlay > * { display: none; }
 #props { overflow: auto; padding: 8px 10px 16px; flex: 1; }
 #code { overflow: auto; margin: 0; padding: 8px 10px; flex: 1; font: 12px/1.45 var(--mono); white-space: pre; }
 .field { display: grid; grid-template-columns: 96px 1fr; align-items: center; gap: 6px; margin: 5px 0; }
+.field > input:not([type=checkbox]), .field > select, .field > textarea { min-width: 0; width: 100%; }   /* long option texts must not widen the panel */
 .field > span { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
 .field.top { align-items: start; }
 .field textarea { resize: vertical; min-height: 56px; }
