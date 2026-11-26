@@ -33,11 +33,22 @@ aside { background: var(--side); display: flex; flex-direction: column; min-heig
 #right { border-left: 1px solid var(--line); }
 section { padding: 8px 10px; display: flex; flex-direction: column; min-height: 0; }
 section.grow { flex: 1; border-top: 1px solid var(--line); }
+/* the palette scrolls on its own and takes what it needs, but leaves the outline room */
+#left > section:first-child { flex: 0 1 auto; padding-right: 4px; }
+#left > section.grow { flex: 1 1 0; min-height: 140px; }
 h2 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 4px 0 8px; }
 h3 { font-size: 11px; font-weight: 600; color: var(--muted); margin: 10px 0 4px; }
 
-#palette { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
-#palette h3 { grid-column: 1 / -1; }
+#palette { overflow-y: auto; min-height: 0; padding-right: 6px; }
+.pal-items { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 6px; }
+.pal-group.folded .pal-items { display: none; }
+.pal-head { display: flex; align-items: center; gap: 6px; width: 100%; background: transparent; border: none; padding: 4px 2px; margin: 2px 0;
+            font-size: 11px; font-weight: 600; color: var(--muted); text-align: left; border-radius: 3px; }
+.pal-head:hover { background: var(--hover); filter: none; }
+.pal-head::before { content: ''; width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent;
+                    border-top: 5px solid currentColor; transition: transform .1s; }
+.pal-group.folded .pal-head::before { transform: rotate(-90deg); }
+.pal-head .count { margin-left: auto; font-weight: 400; opacity: .7; }
 .pal { padding: 5px 6px; border: 1px solid var(--input-line); border-radius: 4px; background: var(--input-bg); cursor: grab;
        user-select: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; touch-action: none; }
 .pal:hover { border-color: var(--focus); }

@@ -471,12 +471,29 @@ const hint = () => 'Drag components from the palette onto the preview, or click 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 function status(html) { $('#status').innerHTML = html; }
 
+// Palette groups fold with a click on their heading; which ones are folded is
+// kept in the webview state, so it survives hiding and reopening the editor.
+const viewState = () => (host.getState && host.getState()) || {};
+function setViewState(change) { if (host.setState) host.setState({ ...viewState(), ...change }); }
+
 function renderPalette() {
-  const p = $('#palette');
+  const p = $('#palette'), folded = new Set(viewState().folded || []);
   for (const g of GROUPS) {
-    p.append(el('h3', {}, g));
-    for (const c of COMPONENTS.filter((c) => c.group === g))
-      p.append(el('div', { class: 'pal', title: `Drag onto the preview, or click to add (${c.type})`, onpointerdown: (e) => startDrag(e, { type: c.type }) }, c.title));
+    const items = COMPONENTS.filter((c) => c.group === g);
+    const box = el('div', { class: 'pal-group' + (folded.has(g) ? ' folded' : '') });
+    const head = el('button', { class: 'pal-head', 'aria-expanded': String(!folded.has(g)), title: 'Fold or unfold this group',
+                                onclick: () => {
+                                  const nowFolded = box.classList.toggle('folded');
+                                  head.setAttribute('aria-expanded', String(!nowFolded));
+                                  setViewState({ folded: [...p.querySelectorAll('.pal-group.folded')].map((b) => b.dataset.group) });
+                                } },
+                    g, el('span', { class: 'count' }, String(items.length)));
+    box.dataset.group = g;
+    const grid = el('div', { class: 'pal-items' });
+    for (const c of items)
+      grid.append(el('div', { class: 'pal', title: `Drag onto the preview, or click to add (${c.type})`, onpointerdown: (e) => startDrag(e, { type: c.type }) }, c.title));
+    box.append(head, grid);
+    p.append(box);
   }
 }
 

@@ -14,6 +14,9 @@ const TYPES = { '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'te
 const bootstrap = `<script>
 window.cuiDevEdits = [];
 window.cuiDevHost = {
+  state: undefined,
+  getState() { return this.state; },
+  setState(s) { this.state = s; },
   postMessage(m) {
     const q = new URLSearchParams(location.search), design = q.get('design') || '${design}';
     if (m.type === 'ready') fetch('/' + design).then((r) => r.text()).then((text) => {

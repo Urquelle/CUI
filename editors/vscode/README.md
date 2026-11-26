@@ -11,7 +11,7 @@ common components, not all of CUI.
 
 ## What it does
 
-- **Palette**: 50 kinds in eight groups. Drag a component onto the preview, or click it to add it after the selection.
+- **Palette**: 50 kinds in eight groups. A click on a group's heading folds it, and the palette scrolls on its own above the outline. Drag a component onto the preview, or click it to add it after the selection.
   - *Layout*: column, row and grid (with a theme background, border and radius), scroll area, accordion, split view (the first child is the first pane), card, separator, spacer.
   - *Overlays*: dialog, dialog footer (the dialog's button row) and sheet. A dialog shows in the designer while it or something in it is selected; in *Try it* and in the app it opens when its state field is true. A button, icon button or link opens or closes one with its *Opens* and *Closes* properties.
   - *Text*: heading, text, link, key cap, icon.
