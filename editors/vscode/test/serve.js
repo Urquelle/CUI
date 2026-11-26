@@ -1,7 +1,8 @@
 // The designer webview in a plain browser, for working on it without VS Code:
 //   node test/serve.js [samples/login.cui.json]   then open http://localhost:8790/
 //   (or http://localhost:8790/?design=samples/settings.cui.json for another design,
-//   &select=n12 to select a node, &tab=code to show the generated code)
+//   &select=n12 to select a node, &tab=code to show the generated code,
+//   &prefs={"layout":...,"folded":[...]} for a panel layout)
 // A stand-in for the VS Code API sends the design in and keeps the edits in
 // window.cuiDevEdits (the latest text is also printed to the console).
 'use strict';
@@ -13,8 +14,9 @@ const TYPES = { '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'te
 
 const bootstrap = `<script>
 window.cuiDevEdits = [];
-// the extension's global state for the panel layout: this browser's localStorage
-try { window.cuiPrefs = JSON.parse(localStorage.getItem('cuiDesignerPrefs')); } catch (e) { window.cuiPrefs = null; }
+// the extension's global state for the panel layout: this browser's localStorage,
+// or ?prefs={...} for a screenshot with another layout
+try { window.cuiPrefs = JSON.parse(new URLSearchParams(location.search).get('prefs') || localStorage.getItem('cuiDesignerPrefs')); } catch (e) { window.cuiPrefs = null; }
 window.cuiDevHost = {
   postMessage(m) {
     const q = new URLSearchParams(location.search), design = q.get('design') || '${design}';
