@@ -590,12 +590,12 @@ enum { CUI__GRIP_DRAG = 1, CUI__GRIP_RESIZE = 2 };
 
 int cui__grab_edges(cui_rect r, float x, float y, float in, float out) {
     if (x < r.x - out || x > r.x + r.w + out || y < r.y - out || y > r.y + r.h + out) return 0;
-    int e = 0;
-    if (x < r.x + in) e |= CUI__GRAB_LEFT;
-    else if (x > r.x + r.w - in) e |= CUI__GRAB_RIGHT;
-    if (y < r.y + in) e |= CUI__GRAB_TOP;
-    else if (y > r.y + r.h - in) e |= CUI__GRAB_BOTTOM;
-    return e;
+    /* a box narrower than two zones (a small item, far zoomed out) is in both of an axis' zones:
+     * the nearer edge is the one meant */
+    bool l = x < r.x + in, rt = x > r.x + r.w - in, t = y < r.y + in, b = y > r.y + r.h - in;
+    if (l && rt) { if (x - r.x <= r.x + r.w - x) rt = false; else l = false; }
+    if (t && b) { if (y - r.y <= r.y + r.h - y) b = false; else t = false; }
+    return (l ? CUI__GRAB_LEFT : 0) | (rt ? CUI__GRAB_RIGHT : 0) | (t ? CUI__GRAB_TOP : 0) | (b ? CUI__GRAB_BOTTOM : 0);
 }
 
 /* Which edges of the dialog's panel the point is on (CUI__GRAB_* bits), 0 when it is not near the border. */

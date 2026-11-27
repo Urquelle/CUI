@@ -1192,3 +1192,795 @@ bool cui_node_deleted(cui_ctx *ui, int *node_id) {
     st->ev_del_read++;
     return true;
 }
+
+/* ------------------------------------------------------------------------ */
+/* Board                                                                    */
+/* ------------------------------------------------------------------------ */
+
+/* Boxes placed freely on the node canvas, holding any content, joined by
+ * lines from box to box. The caller owns the rectangles and the links; the
+ * board moves and resizes the rectangles it is given and reports deletions. */
+
+#define CUI__BD_W         160.0f   /* an item's width when the caller gives none */
+#define CUI__BD_PAD       12.0f
+#define CUI__BD_MIN_W     64.0f
+#define CUI__BD_MIN_H     32.0f
+#define CUI__BD_FIT_H     20.0f    /* content height assumed before it was first measured */
+#define CUI__BD_GRAB_IN   6.0f     /* resize zone inside an item's edge, screen points */
+#define CUI__BD_GRAB_OUT  3.0f     /* and outside it */
+#define CUI__BD_LINE_PTS  64
+
+enum { BD_IDLE = 0, BD_PAN, BD_PEND_DRAG, BD_DRAG, BD_PEND_MARQUEE, BD_MARQUEE, BD_RESIZE, BD_MINIMAP };
+
+typedef struct { int id, from, to; cui_board_path path; float width; cui_color color; } cui__bd_link;
+
+typedef struct {
+    cui__nc_box *items; int item_n, item_cap;
+    cui__nc_ints locked;                  /* ids of items that cannot move, resize or be deleted */
+    cui__bd_link *links; int link_n, link_cap;
+} cui__bd_set;
+
+typedef struct {
+    cui__bd_set set[2]; int cur;          /* set[cur] fills this frame, the other is the last frame */
+    cui__nc_ints sel;                     /* selected item ids */
+    cui__nc_ints mq_base;                 /* selection kept by an adding marquee */
+    int sel_link; bool link_selected;
+    int mode;
+    float press_x, press_y, last_x, last_y;   /* screen points */
+    int press_item; bool press_mod, press_was_sel;
+    float mq_x0, mq_y0, mq_x1, mq_y1;     /* marquee, canvas units */
+    /* resizing: the item, the edges held, its box at the press and its rectangle now
+     * (h 0 when it follows its content and only a side edge is held) */
+    int rs_item, rs_edges; cui_rect rs_from, rs_rect; float rs_min_w, rs_min_h; bool rs_fit, rs_apply;
+    cui__nc_ints ev_del, ev_rm; int ev_del_read, ev_rm_read;
+    /* Delete is resolved at cui_board_end against that frame's items, locks and lines, and its
+     * events wait there for the next frame */
+    bool del_request; cui__nc_ints pend_del, pend_rm;
+    float move_dx, move_dy;               /* canvas units, applied to the selected items this frame */
+    bool frame_all, snap_moved;
+    int kb_item; bool kb_has;             /* item whose card has keyboard focus */
+    cui_spring lift;
+    cui__nc_minimap mm;
+} cui__bd_state;
+
+typedef struct cui__bd_build {
+    cui_id id;
+    cui__bd_state *st;
+    cui__nc_view v;
+    int canvas;
+    bool grid, minimap, consumed, bg_focus, disabled, read_only, drag_selects;
+    float snap;
+    /* the item being built */
+    bool in_item;
+    int card;
+    cui_id card_id;
+    cui__nc_host host;
+    cui__nc_cards cards;
+    /* snapshot for painting, from cui_board_end */
+    cui__nc_box *items; int item_n;
+    cui__bd_link *links; int link_n;
+} cui__bd_build;
+
+typedef struct {
+    cui_color bg, edge;
+    float bw, rad, hover, focus, lift;
+    bool selected;
+} cui__bd_card;
+
+static cui__bd_build *cui__bd_cur(cui_ctx *ui) { return (cui__bd_build *)ui->building.board; }
+
+static void cui__bd_dtor(cui_ctx *ui, void *data) {
+    cui__bd_state *st = data;
+    for (int k = 0; k < 2; k++) { cui__free(ui, st->set[k].items); cui__free(ui, st->set[k].links); cui__free(ui, st->set[k].locked.v); }
+    cui__free(ui, st->sel.v); cui__free(ui, st->mq_base.v);
+    cui__free(ui, st->ev_del.v); cui__free(ui, st->ev_rm.v);
+    cui__free(ui, st->pend_del.v); cui__free(ui, st->pend_rm.v);
+}
+
+static cui_id cui__bd_card_id(cui_id bid, int item) { return cui__hash(&item, sizeof item, bid ^ 0xB0A2Du); }
+static cui_id cui__bd_scroll_id(cui_id bid) { return bid ^ 0xB5C2E1u; }
+static cui_id cui__bd_minimap_id(cui_id bid) { return bid ^ 0xB313A9u; }
+
+static const cui__nc_box *cui__bd_find(const cui__nc_box *p, int n, int id) {
+    for (int i = 0; i < n; i++) if (p[i].id == id) return &p[i];
+    return NULL;
+}
+
+static float cui__bd_snapf(float v, float step) { return step > 0 ? roundf(v / step) * step : v; }
+/* where a dropped edge lands: the nearest grid point, or the next one that keeps the minimum size
+ * (low: a left or top edge, at most `most`; high: a right or bottom edge, at least `least`) */
+static float cui__bd_snap_low(float v, float step, float most) {
+    float s = cui__bd_snapf(v, step);
+    return s <= most ? s : floorf(most / step) * step;
+}
+static float cui__bd_snap_high(float v, float step, float least) {
+    float s = cui__bd_snapf(v, step);
+    return s >= least ? s : ceilf(least / step) * step;
+}
+
+/* The view as painted: this frame's canvas rectangle, panned as it was built. The cards are placed
+ * by their offset in the canvas, so when the board moved since the last frame the lines, the grid
+ * and the marquee follow them this way rather than last frame's rectangle. */
+static cui__nc_view cui__bd_paint_view(const cui__nc_view *v, cui_rect r) {
+    cui__nc_view p = *v;
+    p.ox = r.x + (v->ox - v->r.x); p.oy = r.y + (v->oy - v->r.y);
+    p.r = r;
+    return p;
+}
+
+/* where the ray from the centre c along (dx, dy) leaves the rectangle r */
+static cui_vec2 cui__bd_exit(cui_rect r, cui_vec2 c, float dx, float dy) {
+    float tx = dx != 0 ? r.w * 0.5f / fabsf(dx) : 1e9f, ty = dy != 0 ? r.h * 0.5f / fabsf(dy) : 1e9f;
+    float t = CUI_MIN(tx, ty);
+    cui_vec2 p = { c.x + dx * t, c.y + dy * t };
+    return p;
+}
+
+/* The screen points of a line from box a to box b; returns their count (0: nothing to draw). */
+static int cui__bd_line_points(const cui__nc_view *v, const cui__nc_box *a, const cui__nc_box *b, cui_board_path path, cui_vec2 *out, int cap) {
+    cui_vec2 pa = cui__nc_screen(v, a->x, a->y), pb = cui__nc_screen(v, b->x, b->y);
+    cui_rect ra = { pa.x, pa.y, a->w * v->z, a->h * v->z }, rb = { pb.x, pb.y, b->w * v->z, b->h * v->z };
+    cui_vec2 ca = { ra.x + ra.w * 0.5f, ra.y + ra.h * 0.5f }, cb = { rb.x + rb.w * 0.5f, rb.y + rb.h * 0.5f };
+    float dx = cb.x - ca.x, dy = cb.y - ca.y;
+    if (fabsf(dx) < 0.01f && fabsf(dy) < 0.01f) return 0;
+    if (path == CUI_BOARD_STRAIGHT) {
+        out[0] = cui__bd_exit(ra, ca, dx, dy);
+        out[1] = cui__bd_exit(rb, cb, -dx, -dy);
+        return 2;
+    }
+    /* a curve between the sides that face each other, leaving and entering square to them */
+    bool across = fabsf(dx) / CUI_MAX(1.0f, ra.w + rb.w) >= fabsf(dy) / CUI_MAX(1.0f, ra.h + rb.h);
+    cui_vec2 p0, p3, t;
+    if (across) {
+        float s = dx >= 0 ? 1.0f : -1.0f;
+        p0.x = s > 0 ? ra.x + ra.w : ra.x; p0.y = ca.y;
+        p3.x = s > 0 ? rb.x : rb.x + rb.w; p3.y = cb.y;
+        t.x = s; t.y = 0;
+    } else {
+        float s = dy >= 0 ? 1.0f : -1.0f;
+        p0.x = ca.x; p0.y = s > 0 ? ra.y + ra.h : ra.y;
+        p3.x = cb.x; p3.y = s > 0 ? rb.y : rb.y + rb.h;
+        t.x = 0; t.y = s;
+    }
+    float run = fabsf(across ? p3.x - p0.x : p3.y - p0.y);
+    float k = CUI_MAX(run * 0.5f, 24.0f * v->z);
+    cui_vec2 p1 = { p0.x + t.x * k, p0.y + t.y * k }, p2 = { p3.x - t.x * k, p3.y - t.y * k };
+    float len = hypotf(p3.x - p0.x, p3.y - p0.y) + 2 * k;
+    int n = (int)CUI_CLAMP(len / 6.0f, 8.0f, (float)(cap - 1));
+    for (int i = 0; i <= n; i++) {
+        float u = (float)i / (float)n, w = 1 - u;
+        float w0 = w * w * w, w1 = 3 * w * w * u, w2 = 3 * w * u * u, w3 = u * u * u;
+        out[i].x = w0 * p0.x + w1 * p1.x + w2 * p2.x + w3 * p3.x;
+        out[i].y = w0 * p0.y + w1 * p1.y + w2 * p2.y + w3 * p3.y;
+    }
+    return n + 1;
+}
+
+static float cui__bd_line_width(const cui__bd_link *l, float z) {
+    float w = l->width > 0 ? l->width : 1.5f;
+    return cui__clampf(w * z, 1.0f, w * 2.0f);
+}
+
+/* The link under (mx, my), as an index into s->links, or -1: within its painted stroke or a few
+ * points of a thin one, the nearest when several are. */
+static int cui__bd_link_at(const cui__nc_view *v, const cui__bd_set *s, float mx, float my) {
+    int hit = -1;
+    float best = 1e30f;
+    cui_vec2 m = { mx, my };
+    for (int i = 0; i < s->link_n; i++) {
+        const cui__nc_box *a = cui__bd_find(s->items, s->item_n, s->links[i].from);
+        const cui__nc_box *b = cui__bd_find(s->items, s->item_n, s->links[i].to);
+        if (!a || !b) continue;
+        cui_vec2 pts[CUI__BD_LINE_PTS];
+        int n = cui__bd_line_points(v, a, b, s->links[i].path, pts, CUI__BD_LINE_PTS);
+        float reach = CUI_MAX(5.0f, cui__bd_line_width(&s->links[i], v->z) * 0.5f + 2.0f);
+        for (int k = 0; k + 1 < n; k++) {
+            float d = cui__nc_seg_dist(m, pts[k], pts[k + 1]);
+            if (d < reach && d < best) { best = d; hit = i; }
+        }
+    }
+    return hit;
+}
+
+/* ---- painting ---- */
+
+static void cui__paint_bd_canvas(cui_ctx *ui, cui_node *n, void *data) {
+    cui__bd_build *b = data;
+    cui__bd_state *st = b->st;
+    cui_rect r = n->rect;
+    cui__nc_view pv = cui__bd_paint_view(&b->v, r);
+    if (!b->disabled) cui__nc_paint_wheel_hit(ui, cui__bd_scroll_id(b->id), r);
+    cui_push_clip(ui, cui__rect_inset(r, 1));   /* the node's own clip starts after this paint */
+    if (b->grid) cui__nc_paint_grid(ui, &pv, r);
+    /* lines, under the items; the selected one last, on top */
+    for (int pass = 0; pass < 2; pass++)
+        for (int i = 0; i < b->link_n; i++) {
+            const cui__bd_link *l = &b->links[i];
+            bool sel = st->link_selected && st->sel_link == l->id;
+            if (sel != (pass == 1)) continue;
+            const cui__nc_box *fa = cui__bd_find(b->items, b->item_n, l->from);
+            const cui__nc_box *fb = cui__bd_find(b->items, b->item_n, l->to);
+            if (!fa || !fb) continue;
+            cui_vec2 pts[CUI__BD_LINE_PTS];
+            int np = cui__bd_line_points(&pv, fa, fb, l->path, pts, CUI__BD_LINE_PTS);
+            if (np < 2) continue;
+            float th = cui__bd_line_width(l, pv.z);
+            cui_draw_polyline(ui, pts, np, sel ? th + 0.75f : th, sel ? cui__emphasis(ui) : l->color, false);
+        }
+    cui_pop_clip(ui);
+}
+
+/* over the items: the marquee, the board's focus ring and the minimap */
+static void cui__paint_bd_overlay(cui_ctx *ui, cui_node *n, void *data) {
+    cui__bd_build *b = data;
+    cui__bd_state *st = b->st;
+    cui_rect r = ui->nodes[b->canvas].rect;
+    cui__nc_view pv = cui__bd_paint_view(&b->v, r);
+    cui_color acc = cui__emphasis(ui);
+    if (st->mode == BD_MARQUEE) cui__nc_paint_marquee(ui, &pv, st->mq_x0, st->mq_y0, st->mq_x1, st->mq_y1, acc);
+    if (b->bg_focus) {
+        float rad = ui->theme.radius_panel;
+        cui_draw_rect_border(ui, cui__rect_inset(r, 1), CUI_CORNERS(rad - 1), cui__rgba(0, 0, 0, 0), CUI_C(ui, FOCUS_RING), 2);
+    }
+    st->mm.valid = false;
+    if (b->minimap && b->item_n > 0) cui__nc_paint_minimap(ui, &pv, r, b->items, b->item_n, &st->sel, acc, &st->mm);
+    (void)n;
+}
+
+static void cui__paint_bd_card(cui_ctx *ui, cui_node *n, void *data) {
+    cui__bd_card *cp = data;
+    cui_rect r = n->rect;
+    cui_corners rc = CUI_CORNERS(cp->rad);
+    if (cp->lift > 0.01f) cui__draw_elevation(ui, r, rc, CUI_ELEVATION_FLOATING, cp->lift);
+    cui_color edge = cui_mix(cp->edge, CUI_C(ui, FOREGROUND), cp->hover * 0.18f);
+    if (cp->bw > 0) cui_draw_rect_border(ui, r, rc, cp->bg, edge, cp->bw);
+    else cui_draw_rect(ui, r, rc, cp->bg);
+    if (cp->selected) {
+        float g = 3;
+        cui_rect ring = { r.x - g, r.y - g, r.w + 2 * g, r.h + 2 * g };
+        cui_draw_rect_border(ui, ring, CUI_CORNERS(cp->rad + g), cui__rgba(0, 0, 0, 0), cui__emphasis(ui), 2);
+    }
+    if (cp->focus > 0.01f) cui__draw_focus_ring(ui, r, rc, cp->focus);
+}
+
+/* ---- input ---- */
+
+static void cui__bd_select_only(cui_ctx *ui, cui__bd_state *st, int item) {
+    st->sel.n = 0;
+    cui__nc_push(ui, &st->sel, item);
+    st->link_selected = false;
+}
+
+/* Delete, resolved against the frame just built (its items, their locks and its lines): the
+ * selected items that are not locked, every line that touches one, and the selected line, each
+ * once. The events wait for the next frame. */
+static void cui__bd_delete_selection(cui_ctx *ui, cui__bd_state *st, const cui__bd_set *cur) {
+    cui__nc_ints *gone = &st->pend_del;
+    int first = gone->n;
+    for (int i = 0; i < st->sel.n; i++) {
+        int id = st->sel.v[i];
+        if (cui__bd_find(cur->items, cur->item_n, id) && !cui__nc_has(&cur->locked, id)) cui__nc_push(ui, gone, id);
+    }
+    for (int i = 0; i < cur->link_n; i++) {
+        const cui__bd_link *l = &cur->links[i];
+        bool touches = false;
+        for (int k = first; k < gone->n; k++) if (gone->v[k] == l->from || gone->v[k] == l->to) touches = true;
+        if ((touches || (st->link_selected && st->sel_link == l->id)) && !cui__nc_has(&st->pend_rm, l->id)) cui__nc_push(ui, &st->pend_rm, l->id);
+    }
+    st->sel.n = 0;
+    st->link_selected = false;
+}
+
+/* keys while the board or one of its items has focus: Delete, F fits, Ctrl+A, Escape,
+ * arrows move the selection, + - and 0 zoom */
+static void cui__bd_keys(cui_ctx *ui, cui__bd_build *b, const cui__bd_set *prev) {
+    cui__bd_state *st = b->st;
+    bool prim = (ui->mods & CUI_MOD_PRIMARY) != 0;
+    if (!b->read_only && (cui_key_pressed(ui, CUI_KEY_DELETE) || cui_key_pressed(ui, CUI_KEY_BACKSPACE))) {
+        st->del_request = true;   /* resolved in cui_board_end */
+        ui->kpressed[CUI_KEY_DELETE] = ui->kpressed[CUI_KEY_BACKSPACE] = 0;
+    }
+    if (cui_key_pressed(ui, CUI_KEY_F) && !prim) { st->frame_all = true; ui->kpressed[CUI_KEY_F] = 0; }
+    if (prim && cui_key_pressed(ui, CUI_KEY_A)) {
+        st->sel.n = 0;
+        for (int i = 0; i < prev->item_n; i++) cui__nc_push(ui, &st->sel, prev->items[i].id);
+        ui->kpressed[CUI_KEY_A] = 0;
+    }
+    if (cui_key_pressed(ui, CUI_KEY_ESCAPE)) {
+        if (st->mode == BD_MARQUEE) st->mode = BD_IDLE;
+        else { st->sel.n = 0; st->link_selected = false; }
+        ui->kpressed[CUI_KEY_ESCAPE] = 0;
+    }
+    if (st->sel.n > 0 && !b->read_only) {
+        float step = (ui->mods & CUI_MOD_SHIFT) ? 1.0f : 10.0f;
+        if (cui_key_pressed(ui, CUI_KEY_LEFT)) { st->move_dx -= step; ui->kpressed[CUI_KEY_LEFT] = 0; }
+        if (cui_key_pressed(ui, CUI_KEY_RIGHT)) { st->move_dx += step; ui->kpressed[CUI_KEY_RIGHT] = 0; }
+        if (cui_key_pressed(ui, CUI_KEY_UP)) { st->move_dy -= step; ui->kpressed[CUI_KEY_UP] = 0; }
+        if (cui_key_pressed(ui, CUI_KEY_DOWN)) { st->move_dy += step; ui->kpressed[CUI_KEY_DOWN] = 0; }
+    }
+    float cx = b->v.r.x + b->v.r.w * 0.5f, cy = b->v.r.y + b->v.r.h * 0.5f;
+    if (cui_key_pressed(ui, CUI_KEY_EQUAL)) { cui__nc_zoom_at(&b->v, b->v.z * 1.25f, cx, cy); ui->kpressed[CUI_KEY_EQUAL] = 0; }
+    if (cui_key_pressed(ui, CUI_KEY_MINUS)) { cui__nc_zoom_at(&b->v, b->v.z / 1.25f, cx, cy); ui->kpressed[CUI_KEY_MINUS] = 0; }
+    if (cui_key_pressed(ui, CUI_KEY_0)) { cui__nc_zoom_at(&b->v, 1.0f, cx, cy); ui->kpressed[CUI_KEY_0] = 0; }
+}
+
+/* dragging the selected items, once the press has moved far enough to be a drag */
+static void cui__bd_drag(cui_ctx *ui, cui__bd_build *b) {
+    cui__bd_state *st = b->st;
+    float mx = ui->mdown[0] ? ui->mx : ui->release_x, my = ui->mdown[0] ? ui->my : ui->release_y;   /* a drop is where it was let go */
+    if (st->mode == BD_PEND_DRAG && ui->mdown[0]) {
+        float dx = mx - st->press_x, dy = my - st->press_y;
+        if (dx * dx + dy * dy > CUI__NC_DRAG * CUI__NC_DRAG) st->mode = BD_DRAG;
+    }
+    if (st->mode == BD_DRAG) {
+        st->move_dx += (mx - st->last_x) / b->v.z;
+        st->move_dy += (my - st->last_y) / b->v.z;
+        cui__set_cursor(ui, CUI_CURSOR_MOVE);
+        ui->animating = true;
+    }
+    st->last_x = mx; st->last_y = my;
+    if (!ui->mdown[0]) {
+        /* a plain click on one of several selected items selects just that one */
+        if (st->mode == BD_PEND_DRAG && !st->press_mod && st->press_was_sel) cui__bd_select_only(ui, st, st->press_item);
+        if (st->mode == BD_DRAG) st->snap_moved = b->snap > 0;
+        st->mode = BD_IDLE;
+    }
+}
+
+/* a marquee: selects the items it touches, added to what was selected when it started */
+static void cui__bd_marquee(cui_ctx *ui, cui__bd_build *b, const cui__bd_set *prev) {
+    cui__bd_state *st = b->st;
+    float mx = ui->mdown[0] ? ui->mx : ui->release_x, my = ui->mdown[0] ? ui->my : ui->release_y;
+    if (st->mode == BD_PEND_MARQUEE && ui->mdown[0]) {
+        float dx = mx - st->press_x, dy = my - st->press_y;
+        if (dx * dx + dy * dy > CUI__NC_DRAG * CUI__NC_DRAG) st->mode = BD_MARQUEE;
+    }
+    st->mq_x1 = (mx - b->v.ox) / b->v.z; st->mq_y1 = (my - b->v.oy) / b->v.z;
+    if (st->mode == BD_MARQUEE) {
+        float x0 = CUI_MIN(st->mq_x0, st->mq_x1), y0 = CUI_MIN(st->mq_y0, st->mq_y1);
+        float x1 = CUI_MAX(st->mq_x0, st->mq_x1), y1 = CUI_MAX(st->mq_y0, st->mq_y1);
+        cui__nc_marquee_select(ui, &st->sel, &st->mq_base, prev->items, prev->item_n, x0, y0, x1, y1);
+        ui->animating = true;
+    }
+    if (!ui->mdown[0]) st->mode = BD_IDLE;
+}
+
+/* no diagonal resize cursor on every platform: a corner shows the move cursor */
+static cui_cursor cui__bd_resize_cursor(int edges) {
+    bool h = (edges & (CUI__GRAB_LEFT | CUI__GRAB_RIGHT)) != 0, v = (edges & (CUI__GRAB_TOP | CUI__GRAB_BOTTOM)) != 0;
+    return h && v ? CUI_CURSOR_MOVE : h ? CUI_CURSOR_RESIZE_EW : CUI_CURSOR_RESIZE_NS;
+}
+
+/* resizing: the held edges follow the pointer, the others stay; the item keeps its minimum size */
+static void cui__bd_resize(cui_ctx *ui, cui__bd_build *b) {
+    cui__bd_state *st = b->st;
+    float mx = ui->mdown[0] ? ui->mx : ui->release_x, my = ui->mdown[0] ? ui->my : ui->release_y;
+    float dx = (mx - st->press_x) / b->v.z, dy = (my - st->press_y) / b->v.z;
+    cui_rect f = st->rs_from;
+    float x0 = f.x, y0 = f.y, x1 = f.x + f.w, y1 = f.y + f.h;
+    int e = st->rs_edges;
+    if (e & CUI__GRAB_LEFT) x0 = CUI_MIN(f.x + dx, x1 - st->rs_min_w);
+    if (e & CUI__GRAB_RIGHT) x1 = CUI_MAX(x1 + dx, x0 + st->rs_min_w);
+    if (e & CUI__GRAB_TOP) y0 = CUI_MIN(f.y + dy, y1 - st->rs_min_h);
+    if (e & CUI__GRAB_BOTTOM) y1 = CUI_MAX(y1 + dy, y0 + st->rs_min_h);
+    bool done = !ui->mdown[0];
+    if (done && b->snap > 0) {
+        /* the edges that moved land on the grid, never below the minimum */
+        if (e & CUI__GRAB_LEFT) x0 = cui__bd_snap_low(x0, b->snap, x1 - st->rs_min_w);
+        if (e & CUI__GRAB_RIGHT) x1 = cui__bd_snap_high(x1, b->snap, x0 + st->rs_min_w);
+        if (e & CUI__GRAB_TOP) y0 = cui__bd_snap_low(y0, b->snap, y1 - st->rs_min_h);
+        if (e & CUI__GRAB_BOTTOM) y1 = cui__bd_snap_high(y1, b->snap, y0 + st->rs_min_h);
+    }
+    st->rs_rect.x = x0; st->rs_rect.y = y0; st->rs_rect.w = x1 - x0; st->rs_rect.h = y1 - y0;
+    if (st->rs_fit && !(e & (CUI__GRAB_TOP | CUI__GRAB_BOTTOM))) st->rs_rect.h = 0;
+    st->rs_apply = true;
+    cui__set_cursor(ui, cui__bd_resize_cursor(e));
+    ui->animating = true;
+    if (done) st->mode = BD_IDLE;
+}
+
+/* the gesture in progress: pan, drag items, marquee, resize, or the minimap */
+static void cui__bd_gesture(cui_ctx *ui, cui__bd_build *b, const cui__bd_set *prev, cui_id mmid) {
+    cui__bd_state *st = b->st;
+    switch (st->mode) {
+    case BD_PAN:
+        if (!cui__nc_pan(ui, &b->v, &st->last_x, &st->last_y, b->id)) st->mode = BD_IDLE;
+        break;
+    case BD_PEND_DRAG:
+    case BD_DRAG:
+        cui__bd_drag(ui, b);
+        break;
+    case BD_PEND_MARQUEE:
+    case BD_MARQUEE:
+        cui__bd_marquee(ui, b, prev);
+        break;
+    case BD_RESIZE:
+        cui__bd_resize(ui, b);
+        break;
+    case BD_MINIMAP:
+        if (!ui->mdown[0]) { st->mode = BD_IDLE; break; }
+        cui__nc_minimap_follow(ui, &b->v, &st->mm);
+        ui->active = mmid;
+        break;
+    default: break;
+    }
+}
+
+/* A press on the empty canvas: a line under it is selected; otherwise it pans, or with
+ * Shift or Ctrl (plain with .drag_selects) a marquee starts. Ctrl, and Shift unless Shift
+ * pans, add to the selection. */
+static void cui__bd_press_canvas(cui_ctx *ui, cui__bd_build *b, const cui__bd_set *prev) {
+    cui__bd_state *st = b->st;
+    float mx = ui->mx, my = ui->my;
+    b->consumed = true;
+    bool shift = (ui->mods & CUI_MOD_SHIFT) != 0, prim = (ui->mods & CUI_MOD_PRIMARY) != 0;
+    int hit = cui__bd_link_at(&b->v, prev, mx, my);
+    if (hit >= 0) {
+        if (!shift && !prim) st->sel.n = 0;
+        st->link_selected = true;
+        st->sel_link = prev->links[hit].id;
+        return;
+    }
+    bool marquee = b->drag_selects ? !shift : (shift || prim);
+    bool add = prim || (shift && !b->drag_selects);
+    st->link_selected = false;
+    st->mq_base.n = 0;
+    if (add) for (int i = 0; i < st->sel.n; i++) cui__nc_push(ui, &st->mq_base, st->sel.v[i]);
+    else st->sel.n = 0;
+    st->press_x = st->last_x = mx; st->press_y = st->last_y = my;
+    if (marquee) {
+        st->mode = BD_PEND_MARQUEE;
+        st->mq_x0 = st->mq_x1 = (mx - b->v.ox) / b->v.z;
+        st->mq_y0 = st->mq_y1 = (my - b->v.oy) / b->v.z;
+    } else {
+        st->mode = BD_PAN;
+    }
+}
+
+/* ---- the board ---- */
+
+static void cui__bd_build_canvas(cui_ctx *ui, cui__bd_build *b, const cui_board_opts *o, bool focus_visible, bool hot_mine) {
+    int en = cui__node_new(ui, b->id);
+    cui_node *n = &ui->nodes[en];
+    bool dark = ui->mode == CUI_THEME_DARK;
+    n->w = o->width.kind == CUI_SIZE_FIT && o->width.value == 0 ? CUI_FILL : o->width;
+    n->h = o->height.kind == CUI_SIZE_FIT && o->height.value == 0 ? CUI_PX(480) : o->height;
+    n->bg = dark ? cui_mix(CUI_C(ui, BACKGROUND), CUI_C(ui, SURFACE), 0.45f) : CUI_C(ui, SURFACE_MUTED);
+    n->border = 1;
+    n->border_color = CUI_C(ui, BORDER);
+    n->radius = CUI_CORNERS(ui->theme.radius_panel);
+    n->flags |= CUI_NF_CLIP;
+    n->align = CUI_ALIGN_START;
+    n->paint = cui__paint_bd_canvas;
+    n->paint_data = b;
+    cui__mark_interactive(ui, en, CUI_IF_FOCUSABLE);
+    b->bg_focus = focus_visible;
+    b->canvas = en;
+    if (hot_mine && b->st->mode == BD_IDLE && cui_key_action_down(ui, CUI_KEY_SPACE)) cui__set_cursor(ui, CUI_CURSOR_MOVE);
+    cui__open(ui, en);
+}
+
+bool cui_board_begin_ex(cui_ctx *ui, const char *id_str, cui_node_view *view, const cui_board_opts *o) {
+    cui_board_opts d;
+    memset(&d, 0, sizeof d);
+    if (!o) o = &d;
+    if (!view || cui__bd_cur(ui)) return false;   /* boards do not nest */
+    cui__bd_build *b = cui__frame_alloc(ui, sizeof *b);
+    memset(b, 0, sizeof *b);
+    b->id = cui_make_id(ui, id_str ? id_str : "board");
+    b->v.view = view;
+    b->disabled = cui_is_disabled(ui);
+    b->read_only = o->read_only;
+    b->drag_selects = o->drag_selects;
+    b->snap = o->snap > 0 ? o->snap : 0;
+    b->v.min_zoom = o->min_zoom > 0 ? o->min_zoom : 0.1f;
+    b->v.max_zoom = o->max_zoom > 0 && o->max_zoom >= b->v.min_zoom ? o->max_zoom : CUI_MAX(4.0f, b->v.min_zoom);
+    b->grid = !o->no_grid;
+    b->minimap = o->minimap;
+    cui__bd_state *st = cui_state(ui, b->id, sizeof *st);
+    cui__state_set_dtor(ui, b->id, cui__bd_dtor);
+    b->st = st;
+    /* swap the frame sets: the other one now holds last frame */
+    st->cur ^= 1;
+    cui__bd_set *cur = &st->set[st->cur], *prev = &st->set[st->cur ^ 1];
+    cur->item_n = cur->link_n = cur->locked.n = 0;
+    st->ev_del.n = st->ev_rm.n = 0;
+    st->ev_del_read = st->ev_rm_read = 0;
+    /* what the last frame's Delete resolved to */
+    for (int i = 0; i < st->pend_del.n; i++) cui__nc_push(ui, &st->ev_del, st->pend_del.v[i]);
+    for (int i = 0; i < st->pend_rm.n; i++) cui__nc_push(ui, &st->ev_rm, st->pend_rm.v[i]);
+    st->pend_del.n = st->pend_rm.n = 0;
+    st->move_dx = st->move_dy = 0;
+    /* read only ends a move or a resize under way: editing again takes a new press */
+    if (b->read_only && (st->mode == BD_PEND_DRAG || st->mode == BD_DRAG || st->mode == BD_RESIZE)) { st->mode = BD_IDLE; st->rs_apply = false; }
+    if (view->zoom <= 0) view->zoom = 1;
+    view->zoom = cui__clampf(view->zoom, b->v.min_zoom, b->v.max_zoom);
+    b->v.has_rect = cui__has_prev_rect(ui, b->id);
+    b->v.r = cui__prev_rect(ui, b->id);
+    b->v.z = view->zoom;
+    b->v.ox = b->v.r.x + view->x; b->v.oy = b->v.r.y + view->y;
+
+    /* is the pointer, or the focus, on this board or one of its items? */
+    cui_interact bi = cui__interact(ui, b->id, CUI_IF_FOCUSABLE | CUI_IF_DRAG);
+    cui_id mmid = cui__bd_minimap_id(b->id);
+    cui_interact mi = cui__interact(ui, mmid, CUI_IF_DRAG | CUI_IF_KEEP_FOCUS);
+    bool hot_mine = ui->hot == b->id || ui->hot == mmid;
+    bool focus_mine = ui->focus == b->id;
+    for (int i = 0; i < prev->item_n; i++) {
+        cui_id cid = cui__bd_card_id(b->id, prev->items[i].id);
+        if (ui->hot == cid) hot_mine = true;
+        if (ui->focus == cid) focus_mine = true;
+    }
+    float mx = ui->mx, my = ui->my;
+
+    /* input */
+    if (b->disabled) {
+        st->mode = BD_IDLE;
+        st->rs_apply = false;
+    } else {
+        /* no zoom during a resize: its edges follow the pointer's travel from the press, at the press's zoom */
+        if (st->mode != BD_RESIZE) cui__nc_wheel(ui, &b->v, cui__bd_scroll_id(b->id));
+        /* the keys are not the board's while a popup or a modal it is not in covers it */
+        bool covered = cui__keys_covered(ui) || (ui->prev_modal.id && !cui__layer_in_modal(ui, ui->current_layer, ui->prev_modal.id));
+        if (focus_mine && !ui->edit_prev && !covered) cui__bd_keys(ui, b, prev);
+    }
+    if (st->frame_all && b->v.has_rect) {
+        st->frame_all = false;
+        cui__nc_frame(&b->v, prev->items, prev->item_n);
+    }
+    /* pan: the middle button, or Space and drag, anywhere over the board */
+    bool over = b->v.has_rect && cui__rect_contains(b->v.r, mx, my) && ui->hot_layer == ui->current_layer && (hot_mine || ui->hot != 0);
+    if (!b->disabled && over && st->mode == BD_IDLE && !ui->edit_prev &&
+        (ui->mpressed[CUI_MOUSE_MIDDLE] || (ui->mpressed[0] && cui_key_action_down(ui, CUI_KEY_SPACE)))) {
+        st->mode = BD_PAN; st->last_x = mx; st->last_y = my;
+        b->consumed = true;
+    }
+    if (!b->disabled) cui__bd_gesture(ui, b, prev, mmid);
+    if (mi.hovered && ui->mpressed[0] && !b->consumed && st->mode == BD_IDLE && !b->disabled) {
+        st->mode = BD_MINIMAP;
+        b->consumed = true;
+        cui__nc_minimap_follow(ui, &b->v, &st->mm);   /* a click moves there, not only a drag */
+        ui->active = mmid;
+    }
+    if (bi.hovered && ui->mpressed[0] && !b->consumed && st->mode == BD_IDLE && !b->disabled) cui__bd_press_canvas(ui, b, prev);
+    if (st->mode != BD_IDLE && st->mode != BD_PAN && st->mode != BD_MINIMAP && ui->mdown[0] && ui->active == 0) ui->active = b->id;
+    cui__spring(ui, &st->lift, st->mode == BD_DRAG ? 1.0f : 0.0f, CUI_SPRING_SNAPPY);
+
+    /* build */
+    cui__bd_build_canvas(ui, b, o, bi.focus_visible, hot_mine && !b->disabled);
+    cui_push_id(ui, id_str ? id_str : "board");
+    ui->building.board = b;
+    return true;
+}
+
+void cui_board_end(cui_ctx *ui) {
+    cui__bd_build *b = cui__bd_cur(ui);
+    if (!b) return;
+    cui__bd_state *st = b->st;
+    if (b->in_item) cui_board_item_end(ui);
+    cui_pop_id(ui);
+    /* the marquee and the minimap paint over the items */
+    int ov = cui__absolute(ui, 0, 0, 0, 0, 0);
+    ui->nodes[ov].paint = cui__paint_bd_overlay;
+    ui->nodes[ov].paint_data = b;
+    int mm = -1;
+    if (b->minimap && st->mm.valid) {
+        mm = cui__absolute(ui, cui__bd_minimap_id(b->id), st->mm.rect.x - b->v.r.x, st->mm.rect.y - b->v.r.y, st->mm.rect.w, st->mm.rect.h);
+        cui__mark_interactive(ui, mm, 0);
+    }
+    cui__nc_paint_order(ui, b->canvas, &b->cards, ov, mm);   /* selected items above the rest */
+    cui__close(ui);   /* the canvas */
+    cui__bd_set *cur = &st->set[st->cur];
+    if (st->del_request) { st->del_request = false; cui__bd_delete_selection(ui, st, cur); }
+    /* forget selected items and lines that are gone */
+    for (int i = st->sel.n - 1; i >= 0; i--)
+        if (!cui__bd_find(cur->items, cur->item_n, st->sel.v[i])) st->sel.v[i] = st->sel.v[--st->sel.n];
+    if (st->link_selected) {
+        bool found = false;
+        for (int i = 0; i < cur->link_n; i++) if (cur->links[i].id == st->sel_link) found = true;
+        if (!found) st->link_selected = false;
+    }
+    if (st->mode == BD_RESIZE && !cui__bd_find(cur->items, cur->item_n, st->rs_item)) st->mode = BD_IDLE;
+    if (st->mode != BD_RESIZE) st->rs_apply = false;
+    st->snap_moved = false;
+    b->items = cur->items; b->item_n = cur->item_n;
+    b->links = cur->links; b->link_n = cur->link_n;
+    ui->building.board = NULL;
+    ui->last_id = b->id;
+    ui->last_node = b->canvas;
+}
+
+/* the item's colors: a tone's light tint, the caller's fill, or the surface */
+static void cui__bd_item_colors(cui_ctx *ui, const cui_board_item_opts *o, cui_color *bg, cui_color *edge) {
+    bool dark = ui->mode == CUI_THEME_DARK;
+    if (cui__color_set(o->fill)) {
+        *bg = cui_color_of(ui, o->fill);
+        *edge = cui_mix(*bg, CUI_C(ui, FOREGROUND), 0.22f);
+    } else if (o->tone != CUI_TONE_NEUTRAL) {
+        cui_color t = cui__tone_color(ui, o->tone);
+        *bg = cui_mix(CUI_C(ui, SURFACE), t, dark ? 0.16f : 0.10f);
+        *edge = cui_mix(CUI_C(ui, BORDER), t, dark ? 0.55f : 0.45f);
+    } else {
+        *bg = dark ? CUI_C(ui, SURFACE_RAISED) : CUI_C(ui, SURFACE);
+        *edge = CUI_C(ui, BORDER);
+    }
+    if (cui__color_set(o->border)) *edge = cui_color_of(ui, o->border);
+}
+
+/* what an item knows when it is pressed */
+typedef struct { int item; cui_rect box; int edges; float min_w, min_h; bool fit, movable; } cui__bd_press;
+
+/* a press on an item: on its edge it starts a resize, inside it selects and may start a drag */
+static void cui__bd_press_item(cui_ctx *ui, cui__bd_build *b, const cui__bd_press *p) {
+    cui__bd_state *st = b->st;
+    bool toggle = (ui->mods & CUI_MOD_PRIMARY) != 0, add = (ui->mods & CUI_MOD_SHIFT) != 0;
+    bool selected = cui__nc_has(&st->sel, p->item);
+    b->consumed = true;
+    st->press_x = st->last_x = ui->mx; st->press_y = st->last_y = ui->my;
+    st->link_selected = false;
+    if (p->edges) {
+        if (!selected) cui__bd_select_only(ui, st, p->item);
+        st->mode = BD_RESIZE;
+        st->rs_item = p->item; st->rs_edges = p->edges; st->rs_from = p->box;
+        st->rs_min_w = p->min_w; st->rs_min_h = p->min_h; st->rs_fit = p->fit;
+        return;
+    }
+    st->press_was_sel = selected;
+    st->press_mod = toggle || add;
+    if (toggle && selected) cui__nc_remove(&st->sel, p->item);
+    else if ((toggle || add) && !selected) cui__nc_push(ui, &st->sel, p->item);
+    else if (!selected) cui__bd_select_only(ui, st, p->item);
+    if (cui__nc_has(&st->sel, p->item) && p->movable) {
+        st->mode = BD_PEND_DRAG;
+        st->press_item = p->item;
+    }
+}
+
+bool cui_board_item_begin_ex(cui_ctx *ui, int item_id, cui_rect *rect, const cui_board_item_opts *o) {
+    cui_board_item_opts d;
+    memset(&d, 0, sizeof d);
+    if (!o) o = &d;
+    cui__bd_build *b = cui__bd_cur(ui);
+    if (!b || b->in_item || !rect) return false;
+    cui__bd_state *st = b->st;
+    cui__bd_set *cur = &st->set[st->cur];
+    float z = b->v.z;
+    bool movable = !o->locked && !b->read_only;
+    bool resizable = movable && !o->fixed_size;
+    float pad = o->pad > 0 ? o->pad : CUI__BD_PAD;
+    float min_w = o->min_width > 0 ? o->min_width : CUI__BD_MIN_W, min_h = o->min_height > 0 ? o->min_height : CUI__BD_MIN_H;
+    cui_id cid = cui__bd_card_id(b->id, item_id);
+    cui_id content_id = cid ^ 0xC0E7Bu;
+
+    /* what the gestures did to the rectangle */
+    bool selected = cui__nc_has(&st->sel, item_id);
+    if (selected && movable) {
+        rect->x += st->move_dx; rect->y += st->move_dy;
+        if (st->snap_moved) { rect->x = cui__bd_snapf(rect->x, b->snap); rect->y = cui__bd_snapf(rect->y, b->snap); }
+    }
+    if (st->rs_apply && st->rs_item == item_id && resizable) *rect = st->rs_rect;
+
+    /* its box: a height of 0 follows the content, as last measured */
+    float *fit_h = cui_state(ui, cid ^ 0xF17Bu, sizeof(float));
+    if (cui__has_prev_rect(ui, content_id)) *fit_h = cui__prev_rect(ui, content_id).h;
+    float ph = *fit_h > 0 ? *fit_h : CUI__BD_FIT_H;
+    bool fit = rect->h <= 0;
+    float w = rect->w > 0 ? rect->w : CUI__BD_W;
+    float h = fit ? CUI_MAX(min_h, ph + 2 * pad) : rect->h;
+    CUI__GROW(ui, cur->items, cur->item_n, cur->item_cap, 1);
+    cui__nc_box *box = &cur->items[cur->item_n++];
+    box->id = item_id; box->x = rect->x; box->y = rect->y; box->w = w; box->h = h;
+    if (o->locked) cui__nc_push(ui, &cur->locked, item_id);
+    cui_vec2 s = cui__nc_screen(&b->v, rect->x, rect->y);
+    cui_rect sr = { s.x, s.y, w * z, h * z };
+    if (b->v.has_rect) {
+        cui_rect seen = cui__rect_intersect(sr, b->v.r);
+        if (seen.w <= 0 || seen.h <= 0) return false;   /* out of view: only its box counts */
+    }
+
+    /* input */
+    cui_interact r = cui__interact(ui, cid, CUI_IF_FOCUSABLE | CUI_IF_DRAG);
+    int edges = 0;
+    if (resizable && st->mode == BD_IDLE && !b->disabled && (r.hovered || ui->hot == b->id))
+        edges = cui__grab_edges(sr, ui->mx, ui->my, CUI__BD_GRAB_IN, CUI__BD_GRAB_OUT);
+    if (edges) cui__set_cursor(ui, cui__bd_resize_cursor(edges));
+    if ((r.hovered || edges) && ui->mpressed[0] && !b->consumed && st->mode == BD_IDLE && !b->disabled) {
+        cui__bd_press p = { item_id, { rect->x, rect->y, w, h }, edges, min_w, min_h, fit, movable };
+        cui__bd_press_item(ui, b, &p);
+    }
+    /* keyboard focus arriving on an item selects it */
+    if (r.focus_visible && (!st->kb_has || st->kb_item != item_id) && !cui__nc_has(&st->sel, item_id)) cui__bd_select_only(ui, st, item_id);
+    if (r.focused) { st->kb_has = true; st->kb_item = item_id; }
+    else if (st->kb_has && st->kb_item == item_id) st->kb_has = false;
+    selected = cui__nc_has(&st->sel, item_id);
+    float *hover = cui_state(ui, cid ^ 0x51Bu, sizeof(float));
+    cui__tween(ui, hover, r.hovered && st->mode == BD_IDLE ? 1.0f : 0.0f, CUI__T_HOVER);
+    float *focus = cui_state(ui, cid ^ 0x52Bu, sizeof(float));
+    cui__tween(ui, focus, r.focus_visible ? 1.0f : 0.0f, CUI__T_FOCUS);
+
+    /* build: the card, and the content inside it at 100%, scaled with the view */
+    cui__bd_card *cp = cui__frame_alloc(ui, sizeof *cp);
+    memset(cp, 0, sizeof *cp);
+    cui__bd_item_colors(ui, o, &cp->bg, &cp->edge);
+    float bw = o->border_width < 0 ? 0 : o->border_width > 0 ? o->border_width : 1.0f;
+    cp->bw = bw > 0 ? CUI_MAX(1.0f, bw * z) : 0;
+    cp->rad = o->radius < 0 ? CUI_MIN(sr.w, sr.h) * 0.5f : (o->radius > 0 ? o->radius : ui->theme.radius_control) * z;
+    cp->selected = selected;
+    cp->hover = *hover;
+    cp->focus = *focus;
+    cp->lift = selected && movable && st->lift.x > 0.01f ? st->lift.x : 0;
+    int cn = cui__absolute(ui, cid, s.x - b->v.r.x, s.y - b->v.r.y, sr.w, sr.h);
+    cui_node *n = &ui->nodes[cn];
+    n->flags |= CUI_NF_CLIP;
+    n->radius = CUI_CORNERS(cp->rad);
+    n->paint = cui__paint_bd_card;
+    n->paint_data = cp;
+    cui__mark_interactive(ui, cn, CUI_IF_FOCUSABLE);
+    cui__nc_cards_add(ui, &b->cards, cn, selected);
+    cui__open(ui, cn);
+    cui_push_id_int(ui, item_id);
+    float inner = CUI_MAX(1.0f, w - 2 * pad);
+    int kn = cui__absolute(ui, content_id, pad * z, pad * z, inner, 0);
+    ui->nodes[kn].h = CUI_FIT;
+    ui->nodes[kn].gap = 6;
+    cui__nc_scale_box(&ui->nodes[kn], inner, ph, z);
+    /* components inside see the pointer in their own (unscaled) space */
+    cui__nc_host_begin(ui, &b->host, s.x + pad * z, s.y + pad * z, z);
+    cui__open(ui, kn);
+    b->in_item = true;
+    b->card = cn;
+    b->card_id = cid;
+    return true;
+}
+
+void cui_board_item_end(cui_ctx *ui) {
+    cui__bd_build *b = cui__bd_cur(ui);
+    if (!b || !b->in_item) return;
+    cui__close(ui);   /* the content */
+    cui__nc_host_end(ui, &b->host);
+    cui_pop_id(ui);
+    cui__close(ui);   /* the card */
+    b->in_item = false;
+    ui->last_node = b->card;   /* the card is the previous component, for a selection ring */
+    ui->last_id = b->card_id;
+}
+
+bool cui_board_selected(cui_ctx *ui, int item_id) {
+    cui__bd_build *b = cui__bd_cur(ui);
+    return b && cui__nc_has(&b->st->sel, item_id);
+}
+
+bool cui_board_link_ex(cui_ctx *ui, int link_id, int from_item, int to_item, const cui_board_link_opts *o) {
+    cui_board_link_opts d;
+    memset(&d, 0, sizeof d);
+    if (!o) o = &d;
+    cui__bd_build *b = cui__bd_cur(ui);
+    if (!b) return false;
+    cui__bd_state *st = b->st;
+    cui__bd_set *cur = &st->set[st->cur];
+    CUI__GROW(ui, cur->links, cur->link_n, cur->link_cap, 1);
+    cui__bd_link *l = &cur->links[cur->link_n++];
+    l->id = link_id; l->from = from_item; l->to = to_item;
+    l->path = o->path == CUI_BOARD_STRAIGHT ? CUI_BOARD_STRAIGHT : CUI_BOARD_CURVE;
+    l->width = o->width;
+    if (cui__color_set(o->color)) l->color = cui_color_of(ui, o->color);
+    else if (o->tone != CUI_TONE_NEUTRAL) l->color = cui__tone_color(ui, o->tone);
+    else l->color = CUI_C(ui, BORDER_STRONG);
+    return st->link_selected && st->sel_link == link_id;
+}
+
+bool cui_board_item_deleted(cui_ctx *ui, int *item_id) {
+    cui__bd_build *b = cui__bd_cur(ui);
+    if (!b || b->st->ev_del_read >= b->st->ev_del.n) return false;
+    if (item_id) *item_id = b->st->ev_del.v[b->st->ev_del_read];
+    b->st->ev_del_read++;
+    return true;
+}
+
+bool cui_board_link_removed(cui_ctx *ui, int *link_id) {
+    cui__bd_build *b = cui__bd_cur(ui);
+    if (!b || b->st->ev_rm_read >= b->st->ev_rm.n) return false;
+    if (link_id) *link_id = b->st->ev_rm.v[b->st->ev_rm_read];
+    b->st->ev_rm_read++;
+    return true;
+}

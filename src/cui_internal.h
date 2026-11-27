@@ -448,6 +448,8 @@ typedef struct cui_modal_layer {
     int z;
 } cui_modal_layer;
 cui_interact cui__interact(cui_ctx *ui, cui_id id, int flags);
+/* the layer is the modal's, or a popup opened from inside it (cui_core.c) */
+bool cui__layer_in_modal(cui_ctx *ui, cui_id layer, cui_id modal);
 void cui__mark_interactive(cui_ctx *ui, int node, int flags);
 void cui__set_cursor(cui_ctx *ui, cui_cursor c);
 void cui__wakeup_after(cui_ctx *ui, float seconds);
@@ -688,6 +690,7 @@ struct cui_ctx {
         void *card_stack;
         void *kanban;
         void *dock;
+        void *board;               /* boards do not nest */
         void *spot;                /* spotlight card */
         void *reasoning;
         void *veil;                /* veils nest: each keeps the one around it */
