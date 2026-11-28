@@ -6500,6 +6500,91 @@ static void test_board_labels(void) {
     cui_destroy(ui);
 }
 
+typedef struct {
+    cui_node_view view; cui_rect a, b, c; bool read_only;
+    int created, from, to, dropped, drop_from, activated, act_item; float x, y;
+} board_join_ctx;
+
+static void build_board_join(cui_ctx *ui, void *user) {
+    board_join_ctx *c = user;
+    if (cui_board_begin(ui, "join", &c->view, .height = CUI_PX(400), .read_only = c->read_only)) {
+        cui_board_item(ui, 1, &c->a) { cui_text(ui, "A"); }
+        cui_board_item(ui, 2, &c->b) { cui_text(ui, "B"); }
+        cui_board_item(ui, 3, &c->c) { cui_text(ui, "C"); }
+        cui_board_link(ui, 7, 1, 2);
+        int f, t, id; float x, y;
+        while (cui_board_link_created(ui, &f, &t)) { c->created++; c->from = f; c->to = t; }
+        while (cui_board_link_dropped(ui, &f, &x, &y)) { c->dropped++; c->drop_from = f; c->x = x; c->y = y; }
+        while (cui_board_activated(ui, &id, &x, &y)) { c->activated++; c->act_item = id; c->x = x; c->y = y; }
+        cui_board_end(ui);
+    }
+}
+
+/* hover the item so its handles show, then pull a line from a handle */
+static void board_pull(cui_ctx *ui, board_join_ctx *c, cui_vec2 inside, cui_vec2 from, cui_vec2 to) {
+    cui_input_mouse_move(ui, inside.x, inside.y);
+    run(ui, build_board_join, c, 4);
+    cui_input_mouse_move(ui, from.x, from.y);
+    run(ui, build_board_join, c, 2);
+    cui_input_mouse_button(ui, CUI_MOUSE_LEFT, true);
+    run(ui, build_board_join, c, 1);
+    for (int k = 1; k <= 6; k++) {
+        cui_input_mouse_move(ui, from.x + (to.x - from.x) * k / 6.0f, from.y + (to.y - from.y) * k / 6.0f);
+        run(ui, build_board_join, c, 1);
+    }
+    cui_input_mouse_button(ui, CUI_MOUSE_LEFT, false);
+    run(ui, build_board_join, c, 2);
+}
+
+static void test_board_join(void) {
+    printf("board: handles join items, ask for new ones, double click and Enter activate\n");
+    cui_ctx *ui = new_ctx();
+    board_join_ctx c = { .a = { 40, 40, 100, 60 }, .b = { 400, 40, 100, 60 }, .c = { 40, 300, 100, 60 } };
+    run(ui, build_board_join, &c, 3);
+    cui_rect br = cui_get_rect(ui, cui_make_id(ui, "join"));
+    float ox = br.x, oy = br.y;   /* canvas (0, 0) at 100% */
+    /* from A's right handle onto C: a new line */
+    board_pull(ui, &c, (cui_vec2){ ox + 90, oy + 70 }, (cui_vec2){ ox + 152, oy + 70 }, (cui_vec2){ ox + 90, oy + 330 });
+    CHECK(c.created == 1 && c.from == 1 && c.to == 3);
+    /* A and B are joined already, either way round */
+    board_pull(ui, &c, (cui_vec2){ ox + 90, oy + 70 }, (cui_vec2){ ox + 152, oy + 70 }, (cui_vec2){ ox + 450, oy + 70 });
+    board_pull(ui, &c, (cui_vec2){ ox + 450, oy + 70 }, (cui_vec2){ ox + 388, oy + 70 }, (cui_vec2){ ox + 90, oy + 70 });
+    CHECK(c.created == 1);
+    /* from A's bottom handle onto the empty canvas: a place for a new item, in canvas points */
+    board_pull(ui, &c, (cui_vec2){ ox + 90, oy + 70 }, (cui_vec2){ ox + 90, oy + 112 }, (cui_vec2){ ox + 300, oy + 250 });
+    CHECK(c.dropped == 1 && c.drop_from == 1);
+    CHECK_NEAR(c.x, 300, 0.5); CHECK_NEAR(c.y, 250, 0.5);
+    CHECK(c.created == 1);
+    /* a click on a handle makes nothing */
+    board_pull(ui, &c, (cui_vec2){ ox + 90, oy + 70 }, (cui_vec2){ ox + 152, oy + 70 }, (cui_vec2){ ox + 152, oy + 70 });
+    CHECK(c.created == 1 && c.dropped == 1);
+    /* a double click on an item, then on the empty canvas */
+    click_at(ui, build_board_join, &c, ox + 70, oy + 330);
+    click_at(ui, build_board_join, &c, ox + 70, oy + 330);
+    CHECK(c.activated == 1 && c.act_item == 3);
+    click_at(ui, build_board_join, &c, ox + 600, oy + 300);
+    click_at(ui, build_board_join, &c, ox + 600, oy + 300);
+    CHECK(c.activated == 2 && c.act_item == -1);
+    CHECK_NEAR(c.x, 600, 0.5); CHECK_NEAR(c.y, 300, 0.5);
+    /* Enter on the focused item activates it at its centre */
+    click_at(ui, build_board_join, &c, ox + 450, oy + 60);
+    run(ui, build_board_join, &c, 20);   /* past the double click time */
+    key(ui, build_board_join, &c, CUI_KEY_ENTER, 0);
+    CHECK(c.activated == 3 && c.act_item == 2);
+    CHECK_NEAR(c.x, 450, 0.5); CHECK_NEAR(c.y, 70, 0.5);
+    cui_destroy(ui);
+
+    /* read only: no handles, so the same pull makes nothing */
+    ui = new_ctx();
+    memset(&c, 0, sizeof c);
+    c.a = (cui_rect){ 40, 40, 100, 60 }; c.b = (cui_rect){ 400, 40, 100, 60 }; c.c = (cui_rect){ 40, 300, 100, 60 };
+    c.read_only = true;
+    run(ui, build_board_join, &c, 3);
+    board_pull(ui, &c, (cui_vec2){ ox + 90, oy + 70 }, (cui_vec2){ ox + 152, oy + 70 }, (cui_vec2){ ox + 90, oy + 330 });
+    CHECK(c.created == 0 && c.dropped == 0);
+    cui_destroy(ui);
+}
+
 static void test_board_modes(void) {
     printf("board: read only, locked, snap, drag_selects\n");
     cui_ctx *ui = new_ctx();
@@ -11613,6 +11698,7 @@ int main(void) {
     test_board_lines();
     test_board_strokes();
     test_board_labels();
+    test_board_join();
     test_flame();
     test_disabled_flame_wheel();
     test_disabled_flame_shrinks();

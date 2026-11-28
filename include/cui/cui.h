@@ -3310,7 +3310,11 @@ CUI_API bool cui_node_deleted(cui_ctx *ui, int *node_id);
  * it (Shift or Ctrl, Command on macOS, and drag draws a marquee; with .drag_selects the other
  * way round), as do the middle button and Space and drag. Drag an item to
  * move it with the rest of the selection, its edges and corners to resize
- * it. Click an item or a line to select it, Shift or Ctrl (Command) to add.
+ * it. Click an item or a line to select it, Shift or Ctrl (Command) to add. A
+ * hovered item shows a handle on each side: drag one onto another item to
+ * join them (cui_board_link_created), or onto the empty canvas to ask for
+ * a new item there (cui_board_link_dropped). Double-click an item or the
+ * empty canvas for cui_board_activated.
  * Keyboard: Tab moves between items, arrows move the selection (Shift for
  * a point), Delete removes it, Ctrl+A (Command+A) selects all, Esc clears, F fits,
  * + - and 0 zoom. The view is the node editor's: cui_canvas_controls and
@@ -3334,7 +3338,8 @@ typedef struct cui_board_opts {
     bool no_grid;
     bool minimap;              /* an overview in the bottom right corner; click or drag it to move there */
     bool drag_selects;         /* dragging the empty canvas draws a marquee and Shift and drag pans */
-    bool read_only;            /* pan, zoom and select only: nothing moves, resizes or is deleted */
+    bool read_only;            /* pan, zoom and select only: nothing moves, resizes, is deleted or joined */
+    bool no_connect;           /* no handles on the items: lines are not made from the board */
 } cui_board_opts;
 CUI_API bool cui_board_begin_ex(cui_ctx *ui, const char *id, cui_node_view *view, const cui_board_opts *opts);
 CUI_API void cui_board_end(cui_ctx *ui);
@@ -3383,6 +3388,15 @@ CUI_API bool cui_board_item_deleted(cui_ctx *ui, int *item_id);
 CUI_API bool cui_board_link_removed(cui_ctx *ui, int *link_id);
 /* A line whose `label_edit` was changed and kept this frame, one per call. */
 CUI_API bool cui_board_label_changed(cui_ctx *ui, int *link_id);
+/* A line pulled from an item's handle and dropped on another item: add it if you want it.
+ * The board does not report a second line between the same two items. */
+CUI_API bool cui_board_link_created(cui_ctx *ui, int *from_item, int *to_item);
+/* A line pulled from an item's handle and dropped on the empty canvas at (*x, *y), canvas
+ * points: the place for a new item joined to it. */
+CUI_API bool cui_board_link_dropped(cui_ctx *ui, int *from_item, float *x, float *y);
+/* An item double-clicked or given Enter, with (*x, *y) the canvas point clicked (its centre for
+ * Enter); *item_id -1 for a double click on the empty canvas: the place for a new item. */
+CUI_API bool cui_board_activated(cui_ctx *ui, int *item_id, float *x, float *y);
 #ifndef __cplusplus
 #define cui_board_begin(ui, id, view, ...) cui_board_begin_ex((ui), (id), (view), CUI__OPTS(cui_board_opts, __VA_ARGS__))
 #define cui_board_item(ui, id, rect, ...)  CUI__SCOPE_IF(cui_board_item_begin_ex((ui), (id), (rect), CUI__OPTS(cui_board_item_opts, __VA_ARGS__)), cui_board_item_end(ui))

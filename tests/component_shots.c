@@ -2071,16 +2071,20 @@ static cui_rect bd_rect[6] = { { 370, 180, 190, 0 }, { 30, 30, 200, 0 }, { 30, 2
                                { 690, 30, 200, 0 }, { 690, 220, 200, 0 }, { 380, 380, 170, 0 } };
 static bool bd_wire = true, bd_visual;
 static cui_node_view bd_view;
-static cui_id bd_design_card;
+static cui_id bd_design_card, bd_research_card;
 static void body_board(cui_ctx *ui);
 static void scene_board(cui_ctx *ui, int f) {
-    if (f < 0) {   /* click "Design" to select it */
+    if (f < 0) {   /* click "Design" to select it, then pull a line from its top handle toward "Research" */
         int t = -f - 1;
-        cui_rect d = cui_get_rect(ui, bd_design_card);
+        cui_rect d = cui_get_rect(ui, bd_design_card), l = cui_get_rect(ui, bd_research_card);
+        float hx = d.x + d.w * 0.5f, hy = d.y - 12, tx = l.x + 60, ty = l.y + l.h - 30;
         if (t == 8) cui_input_mouse_move(ui, d.x + d.w - 30, d.y + 14);
         if (t == 9) cui_input_mouse_button(ui, CUI_MOUSE_LEFT, true);
         if (t == 10) cui_input_mouse_button(ui, CUI_MOUSE_LEFT, false);
-        if (t == 11) cui_input_mouse_move(ui, d.x + d.w + 300, d.y + 220);
+        if (t == 14) cui_input_mouse_move(ui, hx, d.y + 4);
+        if (t == 20) cui_input_mouse_move(ui, hx, hy);
+        if (t == 22) cui_input_mouse_button(ui, CUI_MOUSE_LEFT, true);
+        if (t >= 23 && t <= 41) { float k = (t - 23) / 18.0f; cui_input_mouse_move(ui, hx + (tx - hx) * k, hy + (ty - hy) * k); }
         return;
     }
     frame_wrap(ui, body_board);
@@ -2090,7 +2094,7 @@ static void body_board(cui_ctx *ui) {
     static const cui_tone tones[6] = { CUI_TONE_ACCENT, CUI_TONE_INFO, CUI_TONE_VIOLET, CUI_TONE_TEAL, CUI_TONE_ROSE, CUI_TONE_NEUTRAL };
     if (cui_board_begin(ui, "launch", &bd_view, .height = CUI_FILL, .minimap = true)) {
         for (int i = 0; i < 6; i++) {
-            cui_board_item(ui, i, &bd_rect[i], .tone = tones[i], .radius = i == 5 ? -1 : 0) {
+            cui_board_item(ui, i, &bd_rect[i], .tone = tones[i], .radius = i == 5 ? -1.0f : 0.0f) {
                 switch (i) {
                 case 0: bd_title(ui, "Launch plan"); cui_text(ui, "First quarter 2027", .size = 12, .color = CUI_COLOR_TEXT_SECONDARY); break;
                 case 1:
@@ -2108,6 +2112,7 @@ static void body_board(cui_ctx *ui) {
                 }
             }
             if (i == 2) bd_design_card = cui_last_id(ui);
+            if (i == 1) bd_research_card = cui_last_id(ui);
         }
         /* each kind of line once: curves, an elbow, dashes, dots, arrowheads and a dot */
         cui_board_link(ui, 1, 0, 1, .tone = tones[1], .end_cap = CUI_BOARD_CAP_ARROW, .label = "informs");
