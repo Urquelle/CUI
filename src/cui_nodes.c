@@ -1247,6 +1247,9 @@ typedef struct {
     cui__bd_spots ev_drop, ev_act;
     /* a line being pulled from the handle on side ln_side of item ln_from */
     int ln_from, ln_side, ln_target; bool ln_has_target;
+    /* the context menu: what it is for, and one past the frame the caller last asked for it (0 never) */
+    cui_board_target menu; uint64_t menu_frame;
+    bool init;                            /* built at least once, for cui_board_menu_begin */
     float move_dx, move_dy;               /* canvas units, applied to the selected items this frame */
     bool frame_all, snap_moved;
     int kb_item; bool kb_has;             /* item whose card has keyboard focus */
@@ -1758,8 +1761,94 @@ static void cui__bd_delete_selection(cui_ctx *ui, cui__bd_state *st, const cui__
     st->link_selected = false;
 }
 
+/* ---- the context menu and going along lines ---- */
+
+static cui_id cui__bd_menu_id(cui_id bid) { return bid ^ 0xB3E9Au; }
+
+/* The caller builds the menu: it called cui_board_menu_begin this frame or the last. */
+static bool cui__bd_has_menu(cui_ctx *ui, const cui__bd_state *st) { return st->menu_frame && ui->frame <= st->menu_frame; }
+
+/* Opens the menu for an item or a line (or neither: the empty canvas) at the screen point
+ * (sx, sy), over any other popup; what it is opened on becomes the selection. */
+static void cui__bd_open_menu(cui_ctx *ui, cui__bd_build *b, int item, int link, float sx, float sy) {
+    cui__bd_state *st = b->st;
+    if (!cui__bd_has_menu(ui, st) || b->disabled || st->mode != BD_IDLE) return;
+    cui_id pid = cui__bd_menu_id(b->id);
+    cui__close_all_popups(ui);
+    cui__popup_set(ui, pid, true);
+    cui_popup *p = cui__popup_get(ui, pid, false);
+    if (!p) return;
+    p->at_mouse = true;
+    p->mouse.x = sx; p->mouse.y = sy;
+    st->menu.item = item; st->menu.link = link;
+    st->menu.x = (sx - b->v.ox) / b->v.z; st->menu.y = (sy - b->v.oy) / b->v.z;
+    if (item >= 0 && !cui__nc_has(&st->sel, item)) cui__bd_select_only(ui, st, item);
+    if (link >= 0) { st->sel.n = 0; st->link_selected = true; st->sel_link = link; }
+}
+
+/* Shift+F10: the menu for the selected item, else the selected line, else the canvas, below it */
+static void cui__bd_menu_key(cui_ctx *ui, cui__bd_build *b, const cui__bd_set *prev) {
+    cui__bd_state *st = b->st;
+    const cui__nc_box *bx = st->sel.n > 0 ? cui__bd_find(prev->items, prev->item_n, st->sel.v[0]) : NULL;
+    if (bx) {
+        cui_rect r = cui__bd_screen_box(&b->v, bx);
+        cui__bd_open_menu(ui, b, bx->id, -1, r.x + 8, r.y + r.h);
+        return;
+    }
+    for (int i = 0; st->link_selected && i < prev->link_n; i++) {
+        const cui__bd_link *l = &prev->links[i];
+        if (l->id != st->sel_link) continue;
+        const cui__nc_box *fa = cui__bd_find(prev->items, prev->item_n, l->from), *fb = cui__bd_find(prev->items, prev->item_n, l->to);
+        cui_vec2 pts[CUI__BD_LINE_PTS];
+        int n = fa && fb ? cui__bd_line_points(&b->v, fa, fb, l->path, pts, CUI__BD_LINE_PTS) : 0;
+        if (n < 2) break;
+        float total = 0;
+        for (int k = 0; k + 1 < n; k++) total += hypotf(pts[k + 1].x - pts[k].x, pts[k + 1].y - pts[k].y);
+        cui_vec2 mid = cui__bd_along(pts, n, total * 0.5f, false);
+        cui__bd_open_menu(ui, b, -1, l->id, mid.x, mid.y);
+        return;
+    }
+    cui__bd_open_menu(ui, b, -1, -1, b->v.r.x + b->v.r.w * 0.5f, b->v.r.y + b->v.r.h * 0.5f);
+}
+
+/* Alt and an arrow: from the one selected item along a line to the item joined in that direction
+ * (within 60 degrees of it, the nearest first); it takes the selection and the keyboard focus,
+ * and the view moves to it if it is out of sight. */
+static void cui__bd_go_along(cui_ctx *ui, cui__bd_build *b, const cui__bd_set *prev, float dx, float dy) {
+    cui__bd_state *st = b->st;
+    if (st->sel.n != 1) return;
+    int from = st->sel.v[0];
+    const cui__nc_box *a = cui__bd_find(prev->items, prev->item_n, from);
+    if (!a) return;
+    float ax = a->x + a->w * 0.5f, ay = a->y + a->h * 0.5f, best_score = 1e30f;
+    const cui__nc_box *best = NULL;
+    for (int i = 0; i < prev->link_n; i++) {
+        const cui__bd_link *l = &prev->links[i];
+        int other = l->from == from ? l->to : l->to == from ? l->from : -1;
+        const cui__nc_box *o = other >= 0 && other != from ? cui__bd_find(prev->items, prev->item_n, other) : NULL;
+        if (!o) continue;
+        float vx = o->x + o->w * 0.5f - ax, vy = o->y + o->h * 0.5f - ay, len = hypotf(vx, vy);
+        if (len < 1) continue;
+        float c = (vx * dx + vy * dy) / len;
+        if (c < 0.5f) continue;
+        float score = len * (2 - c);
+        if (score < best_score) { best_score = score; best = o; }
+    }
+    if (!best) return;
+    cui__bd_select_only(ui, st, best->id);
+    ui->focus = cui__bd_card_id(b->id, best->id);
+    ui->focus_visible = true;
+    st->kb_has = true; st->kb_item = best->id;
+    cui_rect r = cui__bd_screen_box(&b->v, best), seen = cui__rect_intersect(r, b->v.r);
+    if (seen.w < r.w - 0.5f || seen.h < r.h - 0.5f) {
+        b->v.view->x = b->v.r.w * 0.5f - (best->x + best->w * 0.5f) * b->v.z;
+        b->v.view->y = b->v.r.h * 0.5f - (best->y + best->h * 0.5f) * b->v.z;
+        b->v.ox = b->v.r.x + b->v.view->x; b->v.oy = b->v.r.y + b->v.view->y;
+    }
+}
+
 /* keys while the board or one of its items has focus: Delete, F fits, Ctrl+A, Escape,
- * arrows move the selection, + - and 0 zoom */
+ * arrows move the selection (with Alt, go along a line), + - and 0 zoom, Shift+F10 the menu */
 static void cui__bd_keys(cui_ctx *ui, cui__bd_build *b, const cui__bd_set *prev) {
     cui__bd_state *st = b->st;
     bool prim = (ui->mods & CUI_MOD_PRIMARY) != 0;
@@ -1778,7 +1867,13 @@ static void cui__bd_keys(cui_ctx *ui, cui__bd_build *b, const cui__bd_set *prev)
         else { st->sel.n = 0; st->link_selected = false; }
         ui->kpressed[CUI_KEY_ESCAPE] = 0;
     }
-    if (st->sel.n > 0 && !b->read_only) {
+    if (cui_shortcut(ui, CUI_MOD_SHIFT, CUI_KEY_F10)) { ui->kpressed[CUI_KEY_F10] = 0; cui__bd_menu_key(ui, b, prev); }
+    if ((ui->mods & CUI_MOD_ALT) && st->sel.n == 1) {
+        static const cui_key keys[4] = { CUI_KEY_RIGHT, CUI_KEY_DOWN, CUI_KEY_LEFT, CUI_KEY_UP };
+        static const float kx[4] = { 1, 0, -1, 0 }, ky[4] = { 0, 1, 0, -1 };
+        for (int k = 0; k < 4; k++)
+            if (cui_key_pressed(ui, keys[k])) { ui->kpressed[keys[k]] = 0; cui__bd_go_along(ui, b, prev, kx[k], ky[k]); }
+    } else if (st->sel.n > 0 && !b->read_only) {
         float step = (ui->mods & CUI_MOD_SHIFT) ? 1.0f : 10.0f;
         if (cui_key_pressed(ui, CUI_KEY_LEFT)) { st->move_dx -= step; ui->kpressed[CUI_KEY_LEFT] = 0; }
         if (cui_key_pressed(ui, CUI_KEY_RIGHT)) { st->move_dx += step; ui->kpressed[CUI_KEY_RIGHT] = 0; }
@@ -1971,6 +2066,7 @@ bool cui_board_begin_ex(cui_ctx *ui, const char *id_str, cui_node_view *view, co
     cui__bd_state *st = cui_state(ui, b->id, sizeof *st);
     cui__state_set_dtor(ui, b->id, cui__bd_dtor);
     b->st = st;
+    st->init = true;
     /* swap the frame sets: the other one now holds last frame */
     st->cur ^= 1;
     cui__bd_set *cur = &st->set[st->cur], *prev = &st->set[st->cur ^ 1];
@@ -2036,6 +2132,11 @@ bool cui_board_begin_ex(cui_ctx *ui, const char *id_str, cui_node_view *view, co
         ui->active = mmid;
     }
     if (bi.hovered && ui->mpressed[0] && !b->consumed && st->mode == BD_IDLE && !b->disabled) cui__bd_press_canvas(ui, b, prev);
+    /* a right click on the empty canvas or a line: the menu for it */
+    if (bi.right_clicked && !b->disabled) {
+        int hit = cui__bd_link_at(&b->v, prev, mx, my);
+        cui__bd_open_menu(ui, b, -1, hit >= 0 ? prev->links[hit].id : -1, mx, my);
+    }
     /* a double click on the empty canvas, not on a line: the place for a new item */
     if (bi.double_clicked && !b->disabled && cui__bd_link_at(&b->v, prev, mx, my) < 0)
         cui__bd_push_spot(ui, &st->ev_act, -1, (mx - b->v.ox) / b->v.z, (my - b->v.oy) / b->v.z);
@@ -2078,6 +2179,16 @@ void cui_board_end(cui_ctx *ui) {
     }
     if (st->mode == BD_RESIZE && !cui__bd_find(cur->items, cur->item_n, st->rs_item)) st->mode = BD_IDLE;
     if (st->mode == BD_LINK && !cui__bd_find(cur->items, cur->item_n, st->ln_from)) st->mode = BD_IDLE;
+    /* the menu closes when the caller stops building it, what it is for is gone, or the board is disabled */
+    cui_popup *menu = cui__popup_get(ui, cui__bd_menu_id(b->id), false);
+    if (menu && menu->open) {
+        bool gone = st->menu.item >= 0 && !cui__bd_find(cur->items, cur->item_n, st->menu.item);
+        for (int i = 0; st->menu.link >= 0 && i <= cur->link_n; i++) {
+            if (i == cur->link_n) { gone = true; break; }
+            if (cur->links[i].id == st->menu.link) break;
+        }
+        if (gone || b->disabled || !cui__bd_has_menu(ui, st)) menu->open = false;
+    }
     if (st->mode != BD_RESIZE) st->rs_apply = false;
     st->snap_moved = false;
     b->items = cur->items; b->item_n = cur->item_n;
@@ -2185,6 +2296,7 @@ bool cui_board_item_begin_ex(cui_ctx *ui, int item_id, cui_rect *rect, const cui
         cui__bd_press p = { item_id, { rect->x, rect->y, w, h }, edges, min_w, min_h, fit, movable };
         cui__bd_press_item(ui, b, &p);
     }
+    if (r.right_clicked && !b->disabled) cui__bd_open_menu(ui, b, item_id, -1, ui->mx, ui->my);
     /* a double click, or Enter on the focused item, activates it */
     if (!b->disabled && r.double_clicked)
         cui__bd_push_spot(ui, &st->ev_act, item_id, (ui->mx - b->v.ox) / z, (ui->my - b->v.oy) / z);
@@ -2395,3 +2507,15 @@ bool cui_board_link_removed(cui_ctx *ui, int *link_id) {
     b->st->ev_rm_read++;
     return true;
 }
+
+bool cui_board_menu_begin(cui_ctx *ui, const char *id_str, cui_board_target *target) {
+    cui_id id = cui_make_id(ui, id_str ? id_str : "board");
+    cui__bd_state *st = cui_state(ui, id, sizeof *st);
+    if (!st->init) return false;
+    st->menu_frame = ui->frame + 1;
+    if (!cui__popup_begin(ui, cui__bd_menu_id(id), 0, CUI_PLACE_BOTTOM_START, 0, 6, 0, true)) return false;
+    if (target) *target = st->menu;
+    return true;
+}
+
+void cui_board_menu_end(cui_ctx *ui) { cui__popup_end(ui); }

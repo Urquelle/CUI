@@ -6,6 +6,7 @@ What changed in CUI, newest first. Every component mentioned here runs live in t
 
 ### Added
 
+- Board context menu and keys: `cui_board_menu` after `cui_board_end` builds a menu for the item, line or empty spot that was right-clicked (or the selection, with Shift+F10), and Alt with an arrow goes along a line to the item joined in that direction. See [Board](docs/components-more.md#board).
 - Board items show a handle on each side: pull one onto another item to join them (`cui_board_link_created`), or onto empty space to ask for a new item there (`cui_board_link_dropped`). A double click on an item or on empty space, or Enter on an item, is reported by `cui_board_activated`. The gallery's board makes new ideas this way. See [Board](docs/components-more.md#board).
 - Board line labels: `label` puts text in a pill halfway along a line; `label_edit` makes it your buffer, edited in place with a click and reported by `cui_board_label_changed`. See [Board](docs/components-more.md#board).
 - Board lines: `CUI_BOARD_ELBOW` joins two items in right angles with rounded corners, `dash` draws a line dashed or dotted, and `start_cap` and `end_cap` put an arrowhead or a dot at its ends. See [Board](docs/components-more.md#board).

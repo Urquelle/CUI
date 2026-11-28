@@ -1945,7 +1945,7 @@ static void page_canvas(cui_ctx *ui) {
         cui_box(ui, .pad = 12) { cui_presence_pill(ui, "canvas-here", people, 3); }
     }
 
-    section(ui, "Board", "Ideas placed freely and joined by lines. Drag an idea to move it, its edges to resize it; drag the empty canvas to pan, Shift and drag to select several. Pull a line from the handles of an idea onto another, or onto empty space for a new idea; double-click empty space for one too. Click a title or a line's label to edit it (select a line to label it); Delete removes the selection.");
+    section(ui, "Board", "Ideas placed freely and joined by lines. Drag an idea to move it, its edges to resize it; drag the empty canvas to pan, Shift and drag to select several. Pull a line from the handles of an idea onto another, or onto empty space for a new idea; double-click empty space for one too. Click a title or a line's label to edit it (select a line to label it); right-click for a menu, Alt and the arrows walk along the lines, Delete removes the selection.");
     {
         enum { IDEAS = 16, LINKS = 32 };
         typedef struct { cui_rect rect; char title[48]; const char *note; cui_tone tone; bool alive; } idea;
@@ -2014,6 +2014,22 @@ static void page_canvas(cui_ctx *ui) {
                     idea_n++;
                 }
                 cui_board_end(ui);
+            }
+            cui_board_target t;
+            cui_board_menu(ui, "board-trip", &t) {
+                if (t.item >= 0 && cui_menu_item(ui, "Delete idea", .icon = CUI_ICON_TRASH_2)) {
+                    ideas[t.item].alive = false;
+                    for (int k = link_n - 1; k >= 0; k--) if (links[k][1] == t.item || links[k][2] == t.item) memcpy(links[k], links[--link_n], sizeof links[k]);
+                }
+                if (t.link >= 0 && cui_menu_item(ui, "Delete line", .icon = CUI_ICON_TRASH_2))
+                    for (int k = 0; k < link_n; k++) if (links[k][0] == t.link) { memcpy(links[k], links[--link_n], sizeof links[k]); break; }
+                if (t.item < 0 && t.link < 0 && cui_menu_item(ui, "New idea here", .icon = CUI_ICON_PLUS) && idea_n < IDEAS) {
+                    idea *d = &ideas[idea_n++];
+                    memset(d, 0, sizeof *d);
+                    d->rect = (cui_rect){ t.x - 80, t.y - 20, 160, 0 };
+                    snprintf(d->title, sizeof d->title, "New idea");
+                    d->alive = true;
+                }
             }
             /* fit frames the ideas where they are now; one whose height follows its content counts about 90 tall */
             float fx0 = 1e9f, fy0 = 1e9f, fx1 = -1e9f, fy1 = -1e9f;

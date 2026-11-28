@@ -6585,6 +6585,96 @@ static void test_board_join(void) {
     cui_destroy(ui);
 }
 
+typedef struct {
+    cui_node_view view; cui_rect a, b, c, far; bool with_menu, menu_open, sel[5];
+    cui_board_target t; int chosen;
+} board_menu_ctx;
+
+static void build_board_menu(cui_ctx *ui, void *user) {
+    board_menu_ctx *c = user;
+    if (cui_board_begin(ui, "menu", &c->view, .height = CUI_PX(400))) {
+        cui_board_item(ui, 1, &c->a) { cui_text(ui, "A"); }
+        cui_board_item(ui, 2, &c->b) { cui_text(ui, "B"); }
+        cui_board_item(ui, 3, &c->c) { cui_text(ui, "C"); }
+        cui_board_item(ui, 4, &c->far) { cui_text(ui, "Far"); }
+        for (int i = 1; i <= 4; i++) c->sel[i] = cui_board_selected(ui, i);
+        cui_board_link(ui, 12, 1, 2, .path = CUI_BOARD_STRAIGHT);
+        cui_board_link(ui, 13, 1, 3);
+        cui_board_link(ui, 24, 2, 4);
+        cui_board_end(ui);
+    }
+    c->menu_open = false;
+    if (c->with_menu) cui_board_menu(ui, "menu", &c->t) {
+        c->menu_open = true;
+        if (cui_menu_item(ui, "Remove")) c->chosen++;
+    }
+}
+
+static void board_right_click(cui_ctx *ui, board_menu_ctx *c, float x, float y) {
+    cui_input_mouse_move(ui, x, y);
+    run(ui, build_board_menu, c, 1);
+    cui_input_mouse_button(ui, CUI_MOUSE_RIGHT, true);
+    run(ui, build_board_menu, c, 1);
+    cui_input_mouse_button(ui, CUI_MOUSE_RIGHT, false);
+    run(ui, build_board_menu, c, 3);
+}
+
+static void test_board_menu(void) {
+    printf("board: context menu on items, lines and the canvas; Alt and arrows along lines\n");
+    cui_ctx *ui = new_ctx();
+    board_menu_ctx c = { .a = { 40, 40, 100, 60 }, .b = { 400, 40, 100, 60 }, .c = { 40, 300, 100, 60 }, .far = { 1400, 40, 100, 60 } };
+    run(ui, build_board_menu, &c, 3);
+    cui_rect br = cui_get_rect(ui, cui_make_id(ui, "menu"));
+    float ox = br.x, oy = br.y;
+    /* with no menu built, a right click opens none */
+    board_right_click(ui, &c, ox + 70, oy + 60);
+    CHECK(!c.menu_open);
+    c.with_menu = true;
+    run(ui, build_board_menu, &c, 2);
+    /* on an item: the menu is for it, and it is selected */
+    board_right_click(ui, &c, ox + 70, oy + 60);
+    CHECK(c.menu_open && c.t.item == 1 && c.t.link == -1 && c.sel[1]);
+    CHECK_NEAR(c.t.x, 70, 0.5); CHECK_NEAR(c.t.y, 60, 0.5);
+    key(ui, build_board_menu, &c, CUI_KEY_ESCAPE, 0);
+    run(ui, build_board_menu, &c, 2);
+    CHECK(!c.menu_open);
+    /* on a line */
+    board_right_click(ui, &c, ox + 270, oy + 70);
+    CHECK(c.menu_open && c.t.item == -1 && c.t.link == 12);
+    key(ui, build_board_menu, &c, CUI_KEY_ESCAPE, 0);
+    run(ui, build_board_menu, &c, 2);
+    /* on the empty canvas, and an item of the menu chosen */
+    board_right_click(ui, &c, ox + 600, oy + 300);
+    CHECK(c.menu_open && c.t.item == -1 && c.t.link == -1);
+    CHECK_NEAR(c.t.x, 600, 0.5); CHECK_NEAR(c.t.y, 300, 0.5);
+    key(ui, build_board_menu, &c, CUI_KEY_DOWN, 0);
+    key(ui, build_board_menu, &c, CUI_KEY_ENTER, 0);
+    run(ui, build_board_menu, &c, 2);
+    CHECK(c.chosen == 1 && !c.menu_open);
+    /* Alt and an arrow go along the lines from the selected item: right to B, down from A to C */
+    click_at(ui, build_board_menu, &c, ox + 70, oy + 60);
+    CHECK(c.sel[1]);
+    key(ui, build_board_menu, &c, CUI_KEY_RIGHT, CUI_MOD_ALT);
+    CHECK(c.sel[2] && !c.sel[1]);
+    CHECK_NEAR(c.b.x, 400, 0.001);   /* nothing moved */
+    key(ui, build_board_menu, &c, CUI_KEY_LEFT, CUI_MOD_ALT);
+    key(ui, build_board_menu, &c, CUI_KEY_DOWN, CUI_MOD_ALT);
+    CHECK(c.sel[3] && !c.sel[1]);
+    key(ui, build_board_menu, &c, CUI_KEY_LEFT, CUI_MOD_ALT);   /* nothing joined that way: it stays */
+    CHECK(c.sel[3]);
+    /* going to an item out of view brings it into view */
+    key(ui, build_board_menu, &c, CUI_KEY_UP, CUI_MOD_ALT);
+    key(ui, build_board_menu, &c, CUI_KEY_RIGHT, CUI_MOD_ALT);
+    key(ui, build_board_menu, &c, CUI_KEY_RIGHT, CUI_MOD_ALT);
+    CHECK(c.sel[4]);
+    CHECK(c.view.x < -900);
+    /* Shift+F10 opens the menu for the selected item */
+    key(ui, build_board_menu, &c, CUI_KEY_F10, CUI_MOD_SHIFT);
+    run(ui, build_board_menu, &c, 2);
+    CHECK(c.menu_open && c.t.item == 4);
+    cui_destroy(ui);
+}
+
 static void test_board_modes(void) {
     printf("board: read only, locked, snap, drag_selects\n");
     cui_ctx *ui = new_ctx();
@@ -11699,6 +11789,7 @@ int main(void) {
     test_board_strokes();
     test_board_labels();
     test_board_join();
+    test_board_menu();
     test_flame();
     test_disabled_flame_wheel();
     test_disabled_flame_shrinks();

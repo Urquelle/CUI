@@ -3316,8 +3316,9 @@ CUI_API bool cui_node_deleted(cui_ctx *ui, int *node_id);
  * a new item there (cui_board_link_dropped). Double-click an item or the
  * empty canvas for cui_board_activated.
  * Keyboard: Tab moves between items, arrows move the selection (Shift for
- * a point), Delete removes it, Ctrl+A (Command+A) selects all, Esc clears, F fits,
- * + - and 0 zoom. The view is the node editor's: cui_canvas_controls and
+ * a point), Alt and an arrow go along a line to the item joined that way,
+ * Delete removes the selection, Ctrl+A (Command+A) selects all, Esc clears, F fits,
+ * + - and 0 zoom, Shift+F10 opens the context menu. The view is the node editor's: cui_canvas_controls and
  * cui_live_cursors work with it. */
 typedef enum cui_board_path {
     CUI_BOARD_CURVE = 0,       /* leaves and enters the sides facing each other, in a soft curve */
@@ -3397,10 +3398,24 @@ CUI_API bool cui_board_link_dropped(cui_ctx *ui, int *from_item, float *x, float
 /* An item double-clicked or given Enter, with (*x, *y) the canvas point clicked (its centre for
  * Enter); *item_id -1 for a double click on the empty canvas: the place for a new item. */
 CUI_API bool cui_board_activated(cui_ctx *ui, int *item_id, float *x, float *y);
+/* What a board's context menu was opened on: an item or a line (-1 when not one), and the
+ * canvas point. A right click opens it (selecting what it was on), as does Shift+F10 for the
+ * selected item or line. */
+typedef struct cui_board_target {
+    int item;                  /* the item, or -1 */
+    int link;                  /* the line, or -1; both -1 on the empty canvas */
+    float x, y;                /* canvas points */
+} cui_board_target;
+/* The context menu of board `id` (after cui_board_end): true while it is open, with what it
+ * is for in *target; fill it with cui_menu_item and friends, then call cui_board_menu_end.
+ * A board whose caller builds no menu opens none. */
+CUI_API bool cui_board_menu_begin(cui_ctx *ui, const char *id, cui_board_target *target);
+CUI_API void cui_board_menu_end(cui_ctx *ui);
 #ifndef __cplusplus
 #define cui_board_begin(ui, id, view, ...) cui_board_begin_ex((ui), (id), (view), CUI__OPTS(cui_board_opts, __VA_ARGS__))
 #define cui_board_item(ui, id, rect, ...)  CUI__SCOPE_IF(cui_board_item_begin_ex((ui), (id), (rect), CUI__OPTS(cui_board_item_opts, __VA_ARGS__)), cui_board_item_end(ui))
 #define cui_board_link(ui, id, a, b, ...)  cui_board_link_ex((ui), (id), (a), (b), CUI__OPTS(cui_board_link_opts, __VA_ARGS__))
+#define cui_board_menu(ui, id, target)     CUI__SCOPE_IF(cui_board_menu_begin((ui), (id), (target)), cui_board_menu_end(ui))
 #endif
 
 /* ------------------------------------------------------------------------ */
