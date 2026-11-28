@@ -1776,7 +1776,7 @@ You own the graph: node, pin and link ids are your integers, the editor moves th
 
 ### Board
 
-Boxes placed freely on a canvas, holding anything, joined by lines from box to box: mind maps, concept maps and whiteboards.
+Boxes placed freely on a canvas, holding anything, joined by lines from box to box: mind maps, concept maps and whiteboards. [`examples/mindmap.c`](../examples/mindmap.c) is a whole mind map built on it: ideas with notes, lists, pictures and video links, a panel that edits what is selected, and a context menu.
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="images/components/board-dark.png"><img src="images/components/board.png" alt="Board"></picture>
 
