@@ -3317,8 +3317,15 @@ CUI_API bool cui_node_deleted(cui_ctx *ui, int *node_id);
  * cui_live_cursors work with it. */
 typedef enum cui_board_path {
     CUI_BOARD_CURVE = 0,       /* leaves and enters the sides facing each other, in a soft curve */
-    CUI_BOARD_STRAIGHT         /* from centre to centre, cut at the edges */
+    CUI_BOARD_STRAIGHT,        /* from centre to centre, cut at the edges */
+    CUI_BOARD_ELBOW            /* between the sides facing each other in right angles, with rounded corners */
 } cui_board_path;
+typedef enum cui_board_dash { CUI_BOARD_SOLID = 0, CUI_BOARD_DASHED, CUI_BOARD_DOTTED } cui_board_dash;
+typedef enum cui_board_cap {
+    CUI_BOARD_CAP_NONE = 0,
+    CUI_BOARD_CAP_ARROW,       /* a filled arrowhead touching the item */
+    CUI_BOARD_CAP_DOT          /* a dot on the item's edge */
+} cui_board_cap;
 typedef struct cui_board_opts {
     int _;
     cui_size width, height;    /* default: fill the width, 480 tall */
@@ -3356,6 +3363,9 @@ CUI_API bool cui_board_selected(cui_ctx *ui, int item_id);
 typedef struct cui_board_link_opts {
     int _;
     cui_board_path path;
+    cui_board_dash dash;
+    cui_board_cap start_cap;   /* at the `from` item; default none */
+    cui_board_cap end_cap;     /* at the `to` item; default none */
     float width;               /* points at 100%, default 1.5 */
     cui_color color;           /* unset: `tone` */
     cui_tone tone;             /* NEUTRAL: the strong border color */

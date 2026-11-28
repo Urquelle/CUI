@@ -1212,7 +1212,7 @@ bool cui_node_deleted(cui_ctx *ui, int *node_id) {
 
 enum { BD_IDLE = 0, BD_PAN, BD_PEND_DRAG, BD_DRAG, BD_PEND_MARQUEE, BD_MARQUEE, BD_RESIZE, BD_MINIMAP };
 
-typedef struct { int id, from, to; cui_board_path path; float width; cui_color color; } cui__bd_link;
+typedef struct { int id, from, to; cui_board_path path; cui_board_dash dash; cui_board_cap start_cap, end_cap; float width; cui_color color; } cui__bd_link;
 
 typedef struct {
     cui__nc_box *items; int item_n, item_cap;
@@ -1316,6 +1316,22 @@ static cui_vec2 cui__bd_exit(cui_rect r, cui_vec2 c, float dx, float dy) {
     return p;
 }
 
+/* a rounded corner at c between the run from `from` and the run to `to`, appended to out */
+static int cui__bd_corner(cui_vec2 *out, int n, int cap, cui_vec2 from, cui_vec2 c, cui_vec2 to, float r) {
+    float ix = c.x - from.x, iy = c.y - from.y, ox = to.x - c.x, oy = to.y - c.y;
+    float il = hypotf(ix, iy), ol = hypotf(ox, oy);
+    if (il < 0.01f || ol < 0.01f || r < 0.5f) { if (n < cap) out[n++] = c; return n; }
+    r = CUI_MIN(r, CUI_MIN(il, ol));
+    cui_vec2 a = { c.x - ix / il * r, c.y - iy / il * r }, b = { c.x + ox / ol * r, c.y + oy / ol * r };
+    for (int i = 0; i <= 4 && n < cap; i++) {
+        float u = (float)i / 4.0f, w = 1 - u;
+        out[n].x = w * w * a.x + 2 * w * u * c.x + u * u * b.x;
+        out[n].y = w * w * a.y + 2 * w * u * c.y + u * u * b.y;
+        n++;
+    }
+    return n;
+}
+
 /* The screen points of a line from box a to box b; returns their count (0: nothing to draw). */
 static int cui__bd_line_points(const cui__nc_view *v, const cui__nc_box *a, const cui__nc_box *b, cui_board_path path, cui_vec2 *out, int cap) {
     cui_vec2 pa = cui__nc_screen(v, a->x, a->y), pb = cui__nc_screen(v, b->x, b->y);
@@ -1328,7 +1344,7 @@ static int cui__bd_line_points(const cui__nc_view *v, const cui__nc_box *a, cons
         out[1] = cui__bd_exit(rb, cb, -dx, -dy);
         return 2;
     }
-    /* a curve between the sides that face each other, leaving and entering square to them */
+    /* curves and elbows run between the sides that face each other, leaving and entering square to them */
     bool across = fabsf(dx) / CUI_MAX(1.0f, ra.w + rb.w) >= fabsf(dy) / CUI_MAX(1.0f, ra.h + rb.h);
     cui_vec2 p0, p3, t;
     if (across) {
@@ -1341,6 +1357,22 @@ static int cui__bd_line_points(const cui__nc_view *v, const cui__nc_box *a, cons
         p0.x = ca.x; p0.y = s > 0 ? ra.y + ra.h : ra.y;
         p3.x = cb.x; p3.y = s > 0 ? rb.y : rb.y + rb.h;
         t.x = 0; t.y = s;
+    }
+    if (path == CUI_BOARD_ELBOW) {
+        /* out to the middle of the gap, across, and in */
+        cui_vec2 c1, c2;
+        if (across) { float m = (p0.x + p3.x) * 0.5f; c1.x = m; c1.y = p0.y; c2.x = m; c2.y = p3.y; }
+        else { float m = (p0.y + p3.y) * 0.5f; c1.x = p0.x; c1.y = m; c2.x = p3.x; c2.y = m; }
+        float bend = across ? fabsf(p3.y - p0.y) : fabsf(p3.x - p0.x);
+        int n = 0;
+        out[n++] = p0;
+        if (bend >= 0.5f) {
+            float r = CUI_MIN(8.0f * v->z, bend * 0.5f);
+            n = cui__bd_corner(out, n, cap - 1, p0, c1, c2, r);
+            n = cui__bd_corner(out, n, cap - 1, c1, c2, p3, r);
+        }
+        out[n++] = p3;
+        return n;
     }
     float run = fabsf(across ? p3.x - p0.x : p3.y - p0.y);
     float k = CUI_MAX(run * 0.5f, 24.0f * v->z);
@@ -1359,6 +1391,104 @@ static int cui__bd_line_points(const cui__nc_view *v, const cui__nc_box *a, cons
 static float cui__bd_line_width(const cui__bd_link *l, float z) {
     float w = l->width > 0 ? l->width : 1.5f;
     return cui__clampf(w * z, 1.0f, w * 2.0f);
+}
+
+/* The point at `dist` along the polyline from its start (back: from its end). */
+static cui_vec2 cui__bd_along(const cui_vec2 *p, int n, float dist, bool back) {
+    for (int k = 0; k + 1 < n; k++) {
+        cui_vec2 a = back ? p[n - 1 - k] : p[k], b = back ? p[n - 2 - k] : p[k + 1];
+        float l = hypotf(b.x - a.x, b.y - a.y);
+        if (l >= dist && l > 0) { cui_vec2 q = { a.x + (b.x - a.x) * dist / l, a.y + (b.y - a.y) * dist / l }; return q; }
+        dist -= l;
+    }
+    return back ? p[0] : p[n - 1];
+}
+
+/* the polyline without `a` points of length at its start and `b` at its end; returns the count in out */
+static int cui__bd_trim(const cui_vec2 *p, int n, float a, float b, cui_vec2 *out) {
+    float total = 0;
+    for (int k = 0; k + 1 < n; k++) total += hypotf(p[k + 1].x - p[k].x, p[k + 1].y - p[k].y);
+    if (a + b >= total) return 0;
+    int m = 0;
+    float s = 0;
+    out[m++] = cui__bd_along(p, n, a, false);
+    for (int k = 1; k + 1 < n; k++) {
+        s += hypotf(p[k].x - p[k - 1].x, p[k].y - p[k - 1].y);
+        if (s > a && s < total - b) out[m++] = p[k];
+    }
+    out[m++] = cui__bd_along(p, n, b, true);
+    return m;
+}
+
+/* Dashes (or dots) along the polyline, spaced by length along it. It walks the line once; a
+ * stretch out of `clip` (the board on the screen) is skipped to its last pattern start, so a long
+ * patterned line mostly off screen costs about what its visible part does. The pattern counts
+ * from the line's start, so it does not shift as the view pans. */
+static void cui__bd_dashes(cui_ctx *ui, const cui_vec2 *p, int n, float th, cui_color c, cui_board_dash dash, cui_rect clip) {
+    bool dots = dash == CUI_BOARD_DOTTED;
+    float on = dots ? 0 : th * 3.0f + 3.0f, period = on + (dots ? th * 2.2f + 2.5f : th * 2.0f + 2.5f);
+    float reach = dots ? th * 0.7f + 0.3f : th;   /* how far a piece paints past its centre line */
+    cui_rect seen = { clip.x - reach, clip.y - reach, clip.w + 2 * reach, clip.h + 2 * reach };
+    float at[CUI__BD_LINE_PTS];                   /* length along the line at each point */
+    float total = 0;
+    for (int k = 0; k < n; k++) { at[k] = total; if (k + 1 < n) total += hypotf(p[k + 1].x - p[k].x, p[k + 1].y - p[k].y); }
+    cui_vec2 run[CUI__BD_LINE_PTS + 2];
+    int k = 0;
+    for (float t = 0; t < total; t += period) {
+        while (k + 2 < n && at[k + 1] <= t) k++;
+        cui_vec2 a = p[k], b = p[k + 1];
+        bool visible = CUI_MIN(a.x, b.x) <= seen.x + seen.w && CUI_MAX(a.x, b.x) >= seen.x &&
+                       CUI_MIN(a.y, b.y) <= seen.y + seen.h && CUI_MAX(a.y, b.y) >= seen.y;
+        if (!visible) {
+            /* out of sight: on to the last start whose piece still reaches past this stretch */
+            float skip = floorf((at[k + 1] - on - t) / period);
+            if (skip >= 2) { t += (skip - 1) * period; continue; }
+        }
+        float sl = at[k + 1] - at[k], u = sl > 0 ? (t - at[k]) / sl : 0;
+        cui_vec2 q = { a.x + (b.x - a.x) * u, a.y + (b.y - a.y) * u };
+        if (dots) { if (cui__rect_contains(seen, q.x, q.y)) cui_draw_circle(ui, q, th * 0.7f + 0.3f, c); continue; }
+        /* a dash from t to t + on, round the corners it passes */
+        float end = CUI_MIN(t + on, total);
+        int m = 0, j = k;
+        run[m++] = q;
+        while (j + 2 < n && at[j + 1] < end) { run[m++] = p[j + 1]; j++; }
+        float sj = at[j + 1] - at[j], w = sj > 0 ? (end - at[j]) / sj : 1;
+        cui_vec2 e = { p[j].x + (p[j + 1].x - p[j].x) * w, p[j].y + (p[j + 1].y - p[j].y) * w };
+        run[m++] = e;
+        float x0 = 1e30f, y0 = 1e30f, x1 = -1e30f, y1 = -1e30f;
+        for (int i = 0; i < m; i++) { x0 = CUI_MIN(x0, run[i].x); y0 = CUI_MIN(y0, run[i].y); x1 = CUI_MAX(x1, run[i].x); y1 = CUI_MAX(y1, run[i].y); }
+        if (x1 >= seen.x && x0 <= seen.x + seen.w && y1 >= seen.y && y0 <= seen.y + seen.h) cui_draw_polyline(ui, run, m, th, c, false);
+    }
+}
+
+/* an arrowhead with its tip at the polyline's end (back: at its start), pointing out of the line */
+static void cui__bd_arrow(cui_ctx *ui, const cui_vec2 *p, int n, float s, cui_color c, bool at_start) {
+    cui_vec2 tip = at_start ? p[0] : p[n - 1], from = cui__bd_along(p, n, s, !at_start);
+    float dx = tip.x - from.x, dy = tip.y - from.y, l = hypotf(dx, dy);
+    if (l < 0.01f) return;
+    dx /= l; dy /= l;
+    float half = s * 0.5f;
+    cui_vec2 tri[3] = { tip, { tip.x - dx * s - dy * half, tip.y - dy * s + dx * half }, { tip.x - dx * s + dy * half, tip.y - dy * s - dx * half } };
+    cui_draw_polygon(ui, tri, 3, c);
+}
+
+/* A line with its dashes and end caps; the line stops short of an arrowhead so it does not poke through. */
+static void cui__bd_stroke(cui_ctx *ui, const cui_vec2 *p, int n, float th, cui_color c, const cui__bd_link *l, cui_rect clip) {
+    float s = th * 3.0f + 4.0f;   /* arrowhead length */
+    float a = l->start_cap == CUI_BOARD_CAP_ARROW ? s * 0.6f : 0, b = l->end_cap == CUI_BOARD_CAP_ARROW ? s * 0.6f : 0;
+    cui_vec2 body[CUI__BD_LINE_PTS];
+    const cui_vec2 *q = p;
+    int m = n;
+    if (a > 0 || b > 0) { m = cui__bd_trim(p, n, a, b, body); q = body; }
+    if (m >= 2) {
+        if (l->dash == CUI_BOARD_SOLID) cui_draw_polyline(ui, q, m, th, c, false);
+        else cui__bd_dashes(ui, q, m, th, c, l->dash, clip);
+    }
+    float dot = th * 1.2f + 1.8f;
+    if (l->start_cap == CUI_BOARD_CAP_ARROW) cui__bd_arrow(ui, p, n, s, c, true);
+    else if (l->start_cap == CUI_BOARD_CAP_DOT) cui_draw_circle(ui, p[0], dot, c);
+    if (l->end_cap == CUI_BOARD_CAP_ARROW) cui__bd_arrow(ui, p, n, s, c, false);
+    else if (l->end_cap == CUI_BOARD_CAP_DOT) cui_draw_circle(ui, p[n - 1], dot, c);
 }
 
 /* The link under (mx, my), as an index into s->links, or -1: within its painted stroke or a few
@@ -1405,7 +1535,7 @@ static void cui__paint_bd_canvas(cui_ctx *ui, cui_node *n, void *data) {
             int np = cui__bd_line_points(&pv, fa, fb, l->path, pts, CUI__BD_LINE_PTS);
             if (np < 2) continue;
             float th = cui__bd_line_width(l, pv.z);
-            cui_draw_polyline(ui, pts, np, sel ? th + 0.75f : th, sel ? cui__emphasis(ui) : l->color, false);
+            cui__bd_stroke(ui, pts, np, sel ? th + 0.75f : th, sel ? cui__emphasis(ui) : l->color, l, r);
         }
     cui_pop_clip(ui);
 }
@@ -1961,7 +2091,10 @@ bool cui_board_link_ex(cui_ctx *ui, int link_id, int from_item, int to_item, con
     CUI__GROW(ui, cur->links, cur->link_n, cur->link_cap, 1);
     cui__bd_link *l = &cur->links[cur->link_n++];
     l->id = link_id; l->from = from_item; l->to = to_item;
-    l->path = o->path == CUI_BOARD_STRAIGHT ? CUI_BOARD_STRAIGHT : CUI_BOARD_CURVE;
+    l->path = o->path == CUI_BOARD_STRAIGHT || o->path == CUI_BOARD_ELBOW ? o->path : CUI_BOARD_CURVE;
+    l->dash = o->dash == CUI_BOARD_DASHED || o->dash == CUI_BOARD_DOTTED ? o->dash : CUI_BOARD_SOLID;
+    l->start_cap = o->start_cap == CUI_BOARD_CAP_ARROW || o->start_cap == CUI_BOARD_CAP_DOT ? o->start_cap : CUI_BOARD_CAP_NONE;
+    l->end_cap = o->end_cap == CUI_BOARD_CAP_ARROW || o->end_cap == CUI_BOARD_CAP_DOT ? o->end_cap : CUI_BOARD_CAP_NONE;
     l->width = o->width;
     if (cui__color_set(o->color)) l->color = cui_color_of(ui, o->color);
     else if (o->tone != CUI_TONE_NEUTRAL) l->color = cui__tone_color(ui, o->tone);

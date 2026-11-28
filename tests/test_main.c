@@ -6393,6 +6393,60 @@ static void test_board_review(void) {
     cui_destroy(ui);
 }
 
+typedef struct { cui_node_view view; cui_rect a, b; cui_board_path path; cui_board_dash dash; bool sel, no_caps; } board_line_ctx;
+
+static void build_board_line(cui_ctx *ui, void *user) {
+    board_line_ctx *c = user;
+    if (cui_board_begin(ui, "lines", &c->view, .height = CUI_PX(400))) {
+        cui_board_item(ui, 1, &c->a) { cui_text(ui, "A"); }
+        cui_board_item(ui, 2, &c->b) { cui_text(ui, "B"); }
+        c->sel = cui_board_link(ui, 7, 1, 2, .path = c->path, .dash = c->dash, .end_cap = c->no_caps ? CUI_BOARD_CAP_NONE : CUI_BOARD_CAP_ARROW,
+                                .start_cap = c->no_caps ? CUI_BOARD_CAP_NONE : CUI_BOARD_CAP_DOT);
+        cui_board_end(ui);
+    }
+}
+
+/* the vertices one frame of a two-item board draws, with the line styled as given */
+static int board_line_vertices(cui_board_dash dash, bool caps, float to_x) {
+    cui_ctx *ui = new_ctx();
+    board_line_ctx c = { .a = { 40, 40, 100, 60 }, .b = { to_x, 40, 100, 60 }, .path = CUI_BOARD_STRAIGHT, .dash = dash, .no_caps = !caps };
+    run(ui, build_board_line, &c, 3);
+    int v = cui_get_draw_data(ui)->vertex_count;
+    cui_destroy(ui);
+    return v;
+}
+
+static void test_board_strokes(void) {
+    printf("board: dashes, dots and caps are drawn\n");
+    int solid = board_line_vertices(CUI_BOARD_SOLID, false, 600), dashed = board_line_vertices(CUI_BOARD_DASHED, false, 600);
+    int dotted = board_line_vertices(CUI_BOARD_DOTTED, false, 600), capped = board_line_vertices(CUI_BOARD_SOLID, true, 600);
+    CHECK(dashed > solid);           /* many short pieces instead of one */
+    CHECK(dotted > solid && dotted != dashed);
+    CHECK(capped > solid);           /* an arrowhead and a dot */
+}
+
+static void test_board_lines(void) {
+    printf("board: elbow, curved and dashed lines are picked where they run\n");
+    for (int path = 0; path < 2; path++) {
+        for (int dash = 0; dash < 3; dash++) {
+            cui_ctx *ui = new_ctx();
+            board_line_ctx c = { .a = { 40, 40, 100, 60 }, .b = { 400, 200, 100, 60 } };
+            c.path = path ? CUI_BOARD_ELBOW : CUI_BOARD_CURVE;
+            c.dash = (cui_board_dash)dash;
+            run(ui, build_board_line, &c, 3);
+            cui_rect br = cui_get_rect(ui, cui_make_id(ui, "lines"));
+            /* the elbow turns down at the middle of the gap (x 270); the curve crosses it at y 150 */
+            click_at(ui, build_board_line, &c, br.x + 270, br.y + 100);
+            CHECK(c.sel == (path == 1));
+            click_at(ui, build_board_line, &c, br.x + 300, br.y + 380);   /* empty canvas: clears it */
+            CHECK(!c.sel);
+            click_at(ui, build_board_line, &c, br.x + 270, br.y + 150);
+            CHECK(c.sel);                                                 /* both pass the middle */
+            cui_destroy(ui);
+        }
+    }
+}
+
 static void test_board_modes(void) {
     printf("board: read only, locked, snap, drag_selects\n");
     cui_ctx *ui = new_ctx();
@@ -11503,6 +11557,8 @@ int main(void) {
     test_board();
     test_board_modes();
     test_board_review();
+    test_board_lines();
+    test_board_strokes();
     test_flame();
     test_disabled_flame_wheel();
     test_disabled_flame_shrinks();
