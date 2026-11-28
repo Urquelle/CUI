@@ -186,20 +186,24 @@ static void cui__nc_cards_add(cui_ctx *ui, cui__nc_cards *c, int idx, bool raise
     c->n++;
 }
 
-/* Relinks the canvas' absolute children in paint order: resting cards, raised
- * cards, then the overlays (top_a, top_b; -1 for none). Later children paint
- * above and take the pointer first. */
-static void cui__nc_paint_order(cui_ctx *ui, int canvas, const cui__nc_cards *cards, int top_a, int top_b) {
+/* Relinks the canvas' absolute children in paint order: what goes under the
+ * cards (`under`, may be NULL), resting cards, raised cards, then the overlays
+ * (top_a, top_b; -1 for none). Later children paint above and take the
+ * pointer first. */
+static void cui__nc_paint_order(cui_ctx *ui, int canvas, const cui__nc_cards *under, const cui__nc_cards *cards, int top_a, int top_b) {
     cui_node *en = &ui->nodes[canvas];
     int total = 0;
     for (int c = en->abs_first; c >= 0; c = ui->nodes[c].next) total++;
     int *order = cui__frame_alloc(ui, sizeof(int) * (size_t)(total + 1));
     int on = 0;
-    for (int pass = 0; pass < 3; pass++)
+    for (int pass = 0; pass < 4; pass++)
         for (int c = en->abs_first; c >= 0; c = ui->nodes[c].next) {
-            int kind = 0;   /* 0 resting, 1 raised card, 2 overlay */
-            if (c == top_a || c == top_b) kind = 2;
-            else for (int k = 0; k < cards->n; k++) if (cards->idx[k] == c) { kind = cards->raise[k] ? 1 : 0; break; }
+            int kind = 1;   /* 0 under the cards, 1 resting, 2 raised card, 3 overlay */
+            if (c == top_a || c == top_b) kind = 3;
+            else {
+                for (int k = 0; k < cards->n; k++) if (cards->idx[k] == c) { kind = cards->raise[k] ? 2 : 1; break; }
+                for (int k = 0; under && k < under->n; k++) if (under->idx[k] == c) { kind = 0; break; }
+            }
             if (kind == pass) order[on++] = c;
         }
     for (int k = 0; k < on; k++) ui->nodes[order[k]].next = k + 1 < on ? order[k + 1] : -1;
@@ -904,7 +908,7 @@ void cui_node_editor_end(cui_ctx *ui) {
         cui__mark_interactive(ui, mm, 0);
     }
     /* selected nodes paint (and take the pointer) above the rest */
-    cui__nc_paint_order(ui, b->editor_node, &b->cards, ov, mm);
+    cui__nc_paint_order(ui, b->editor_node, NULL, &b->cards, ov, mm);
     cui__close(ui);   /* the canvas */
     /* forget selected nodes that are gone */
     cui__ne_set *cur = &st->set[st->cur];
@@ -1232,7 +1236,7 @@ typedef struct {
     /* resizing: the item, the edges held, its box at the press and its rectangle now
      * (h 0 when it follows its content and only a side edge is held) */
     int rs_item, rs_edges; cui_rect rs_from, rs_rect; float rs_min_w, rs_min_h; bool rs_fit, rs_apply;
-    cui__nc_ints ev_del, ev_rm; int ev_del_read, ev_rm_read;
+    cui__nc_ints ev_del, ev_rm, ev_lbl; int ev_del_read, ev_rm_read, ev_lbl_read;
     /* Delete is resolved at cui_board_end against that frame's items, locks and lines, and its
      * events wait there for the next frame */
     bool del_request; cui__nc_ints pend_del, pend_rm;
@@ -1256,6 +1260,7 @@ typedef struct cui__bd_build {
     cui_id card_id;
     cui__nc_host host;
     cui__nc_cards cards;
+    cui__nc_cards labels;                 /* line labels: under the items, like their lines */
     /* snapshot for painting, from cui_board_end */
     cui__nc_box *items; int item_n;
     cui__bd_link *links; int link_n;
@@ -1273,7 +1278,7 @@ static void cui__bd_dtor(cui_ctx *ui, void *data) {
     cui__bd_state *st = data;
     for (int k = 0; k < 2; k++) { cui__free(ui, st->set[k].items); cui__free(ui, st->set[k].links); cui__free(ui, st->set[k].locked.v); }
     cui__free(ui, st->sel.v); cui__free(ui, st->mq_base.v);
-    cui__free(ui, st->ev_del.v); cui__free(ui, st->ev_rm.v);
+    cui__free(ui, st->ev_del.v); cui__free(ui, st->ev_rm.v); cui__free(ui, st->ev_lbl.v);
     cui__free(ui, st->pend_del.v); cui__free(ui, st->pend_rm.v);
 }
 
@@ -1814,8 +1819,8 @@ bool cui_board_begin_ex(cui_ctx *ui, const char *id_str, cui_node_view *view, co
     st->cur ^= 1;
     cui__bd_set *cur = &st->set[st->cur], *prev = &st->set[st->cur ^ 1];
     cur->item_n = cur->link_n = cur->locked.n = 0;
-    st->ev_del.n = st->ev_rm.n = 0;
-    st->ev_del_read = st->ev_rm_read = 0;
+    st->ev_del.n = st->ev_rm.n = st->ev_lbl.n = 0;
+    st->ev_del_read = st->ev_rm_read = st->ev_lbl_read = 0;
     /* what the last frame's Delete resolved to */
     for (int i = 0; i < st->pend_del.n; i++) cui__nc_push(ui, &st->ev_del, st->pend_del.v[i]);
     for (int i = 0; i < st->pend_rm.n; i++) cui__nc_push(ui, &st->ev_rm, st->pend_rm.v[i]);
@@ -1898,7 +1903,7 @@ void cui_board_end(cui_ctx *ui) {
         mm = cui__absolute(ui, cui__bd_minimap_id(b->id), st->mm.rect.x - b->v.r.x, st->mm.rect.y - b->v.r.y, st->mm.rect.w, st->mm.rect.h);
         cui__mark_interactive(ui, mm, 0);
     }
-    cui__nc_paint_order(ui, b->canvas, &b->cards, ov, mm);   /* selected items above the rest */
+    cui__nc_paint_order(ui, b->canvas, &b->labels, &b->cards, ov, mm);   /* labels under the items, selected items above the rest */
     cui__close(ui);   /* the canvas */
     cui__bd_set *cur = &st->set[st->cur];
     if (st->del_request) { st->del_request = false; cui__bd_delete_selection(ui, st, cur); }
@@ -2080,6 +2085,63 @@ bool cui_board_selected(cui_ctx *ui, int item_id) {
     return b && cui__nc_has(&b->st->sel, item_id);
 }
 
+/* A line's label: a pill halfway along it, laid out at 100% and scaled with the view like an
+ * item's content. An editable one holds cui_inline_edit; a plain one only paints, so a click
+ * on it falls through to the canvas and selects the line beneath. */
+static void cui__bd_label(cui_ctx *ui, cui__bd_build *b, const cui__bd_link *l, const char *text, char *edit, size_t cap, bool selected) {
+    cui__bd_state *st = b->st;
+    const cui__bd_set *cur = &st->set[st->cur], *prev = &st->set[st->cur ^ 1];
+    /* the items as built this frame when they came first, else as last frame */
+    const cui__nc_box *fa = cui__bd_find(cur->items, cur->item_n, l->from), *fb = cui__bd_find(cur->items, cur->item_n, l->to);
+    if (!fa) fa = cui__bd_find(prev->items, prev->item_n, l->from);
+    if (!fb) fb = cui__bd_find(prev->items, prev->item_n, l->to);
+    if (!fa || !fb) return;
+    cui_vec2 pts[CUI__BD_LINE_PTS];
+    int np = cui__bd_line_points(&b->v, fa, fb, l->path, pts, CUI__BD_LINE_PTS);
+    if (np < 2) return;
+    float total = 0;
+    for (int k = 0; k + 1 < np; k++) total += hypotf(pts[k + 1].x - pts[k].x, pts[k + 1].y - pts[k].y);
+    cui_vec2 mid = cui__bd_along(pts, np, total * 0.5f, false);
+    if (b->v.has_rect) {
+        cui_rect near_view = { b->v.r.x - 200, b->v.r.y - 200, b->v.r.w + 400, b->v.r.h + 400 };
+        if (!cui__rect_contains(near_view, mid.x, mid.y)) return;
+    }
+    float z = b->v.z;
+    cui_id pid = cui__hash(&l->id, sizeof l->id, b->id ^ 0x1AB3Fu);
+    float fs = ui->theme.text_sm, size = cui__fs(ui, fs);
+    /* centred on the line by last frame's size (at 100%), or a guess the first time */
+    cui_rect pr = cui__prev_rect(ui, pid);
+    bool known = cui__has_prev_rect(ui, pid);
+    float w = known ? pr.w : cui__text_width(ui, CUI_FONT_BODY, size, text, -1, false) + (edit ? 46 : 20);
+    float h = known ? pr.h : size * 1.5f + 6;
+    float x = mid.x - w * z * 0.5f, y = mid.y - h * z * 0.5f;
+    int ln = cui__absolute(ui, pid, x - b->v.r.x, y - b->v.r.y, 0, 0);
+    cui_node *n = &ui->nodes[ln];
+    n->w = CUI_FIT; n->h = CUI_FIT;
+    n->dir = CUI_ROW; n->align = CUI_ALIGN_CENTER;
+    n->pad[0] = n->pad[2] = edit ? 1 : 3;
+    n->pad[1] = edit ? 3 : 10;
+    n->pad[3] = edit ? 10 : 10;   /* cui_inline_edit hangs its own padding out to the left */
+    n->bg = ui->mode == CUI_THEME_DARK ? CUI_C(ui, SURFACE_RAISED) : CUI_C(ui, SURFACE);
+    n->border = 1;
+    n->border_color = selected ? cui__emphasis(ui) : CUI_C(ui, BORDER);
+    n->radius = CUI_CORNERS(h * 0.5f);
+    cui__nc_scale_box(n, w, h, z);
+    cui__nc_cards_add(ui, &b->labels, ln, false);
+    cui__nc_host_begin(ui, &b->host, x, y, z);
+    cui__open(ui, ln);
+    if (edit) {
+        cui_push_id_int(ui, l->id);
+        if (cui_inline_edit(ui, "##label", edit, cap, .font = CUI_FONT_BODY, .size = fs, .placeholder = "Label") & CUI_CHANGED)
+            cui__nc_push(ui, &st->ev_lbl, l->id);
+        cui_pop_id(ui);
+    } else {
+        cui__text_node(ui, text, -1, CUI_FONT_BODY, size, CUI_C(ui, TEXT_SECONDARY), false);
+    }
+    cui__close(ui);
+    cui__nc_host_end(ui, &b->host);
+}
+
 bool cui_board_link_ex(cui_ctx *ui, int link_id, int from_item, int to_item, const cui_board_link_opts *o) {
     cui_board_link_opts d;
     memset(&d, 0, sizeof d);
@@ -2099,7 +2161,11 @@ bool cui_board_link_ex(cui_ctx *ui, int link_id, int from_item, int to_item, con
     if (cui__color_set(o->color)) l->color = cui_color_of(ui, o->color);
     else if (o->tone != CUI_TONE_NEUTRAL) l->color = cui__tone_color(ui, o->tone);
     else l->color = CUI_C(ui, BORDER_STRONG);
-    return st->link_selected && st->sel_link == link_id;
+    bool selected = st->link_selected && st->sel_link == link_id;
+    char *edit = o->label_edit && o->label_cap > 0 ? o->label_edit : NULL;
+    const char *text = edit ? edit : o->label;
+    if (!b->in_item && text && (text[0] || (edit && selected))) cui__bd_label(ui, b, l, text, edit, o->label_cap, selected);
+    return selected;
 }
 
 bool cui_board_item_deleted(cui_ctx *ui, int *item_id) {
@@ -2107,6 +2173,14 @@ bool cui_board_item_deleted(cui_ctx *ui, int *item_id) {
     if (!b || b->st->ev_del_read >= b->st->ev_del.n) return false;
     if (item_id) *item_id = b->st->ev_del.v[b->st->ev_del_read];
     b->st->ev_del_read++;
+    return true;
+}
+
+bool cui_board_label_changed(cui_ctx *ui, int *link_id) {
+    cui__bd_build *b = cui__bd_cur(ui);
+    if (!b || b->st->ev_lbl_read >= b->st->ev_lbl.n) return false;
+    if (link_id) *link_id = b->st->ev_lbl.v[b->st->ev_lbl_read];
+    b->st->ev_lbl_read++;
     return true;
 }
 

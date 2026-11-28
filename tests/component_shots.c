@@ -2110,10 +2110,10 @@ static void body_board(cui_ctx *ui) {
             if (i == 2) bd_design_card = cui_last_id(ui);
         }
         /* each kind of line once: curves, an elbow, dashes, dots, arrowheads and a dot */
-        cui_board_link(ui, 1, 0, 1, .tone = tones[1], .end_cap = CUI_BOARD_CAP_ARROW);
+        cui_board_link(ui, 1, 0, 1, .tone = tones[1], .end_cap = CUI_BOARD_CAP_ARROW, .label = "informs");
         cui_board_link(ui, 2, 0, 2, .tone = tones[2], .path = CUI_BOARD_ELBOW, .end_cap = CUI_BOARD_CAP_ARROW);
         cui_board_link(ui, 3, 0, 3, .tone = tones[3], .dash = CUI_BOARD_DASHED, .end_cap = CUI_BOARD_CAP_ARROW);
-        cui_board_link(ui, 4, 0, 4, .tone = tones[4], .path = CUI_BOARD_ELBOW, .start_cap = CUI_BOARD_CAP_DOT, .end_cap = CUI_BOARD_CAP_ARROW);
+        cui_board_link(ui, 4, 0, 4, .tone = tones[4], .path = CUI_BOARD_ELBOW, .start_cap = CUI_BOARD_CAP_DOT, .end_cap = CUI_BOARD_CAP_ARROW, .label = "after the beta");
         cui_board_link(ui, 5, 4, 5, .path = CUI_BOARD_STRAIGHT, .dash = CUI_BOARD_DOTTED);
         cui_board_end(ui);
     }

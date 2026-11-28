@@ -6447,6 +6447,59 @@ static void test_board_lines(void) {
     }
 }
 
+typedef struct { cui_node_view view; cui_rect a, b, c; char label[32]; int changed, last_changed; bool sel_plain, sel_edit; } board_label_ctx;
+
+static void build_board_labels(cui_ctx *ui, void *user) {
+    board_label_ctx *c = user;
+    if (cui_board_begin(ui, "labels", &c->view, .height = CUI_PX(400))) {
+        cui_board_item(ui, 1, &c->a) { cui_text(ui, "A"); }
+        cui_board_item(ui, 2, &c->b) { cui_text(ui, "B"); }
+        cui_board_item(ui, 3, &c->c) { cui_text(ui, "C"); }
+        c->sel_edit = cui_board_link(ui, 7, 1, 2, .path = CUI_BOARD_STRAIGHT, .label_edit = c->label, .label_cap = sizeof c->label);
+        c->sel_plain = cui_board_link(ui, 8, 1, 3, .path = CUI_BOARD_STRAIGHT, .label = "plain");
+        int id;
+        while (cui_board_label_changed(ui, &id)) { c->changed++; c->last_changed = id; }
+        cui_board_end(ui);
+    }
+}
+
+static void test_board_labels(void) {
+    printf("board: line labels, edited in place, kept and put back\n");
+    cui_ctx *ui = new_ctx();
+    board_label_ctx c = { .a = { 40, 40, 100, 60 }, .b = { 400, 40, 100, 60 }, .c = { 40, 300, 100, 60 } };
+    snprintf(c.label, sizeof c.label, "Talks to");
+    run(ui, build_board_labels, &c, 3);
+    cui_rect br = cui_get_rect(ui, cui_make_id(ui, "labels"));
+    /* a click on a plain label falls through to its line, which is selected */
+    click_at(ui, build_board_labels, &c, br.x + 90, br.y + 200);
+    CHECK(c.sel_plain && !c.sel_edit);
+    /* the editable label sits halfway along its line: a click edits it, Enter keeps it */
+    click_at(ui, build_board_labels, &c, br.x + 270, br.y + 70);
+    type(ui, build_board_labels, &c, "Calls");
+    key(ui, build_board_labels, &c, CUI_KEY_ENTER, 0);
+    run(ui, build_board_labels, &c, 2);
+    CHECK(strcmp(c.label, "Calls") == 0);
+    CHECK(c.changed == 1 && c.last_changed == 7);
+    /* Esc puts it back and reports nothing */
+    click_at(ui, build_board_labels, &c, br.x + 270, br.y + 70);
+    type(ui, build_board_labels, &c, "Ignores");
+    key(ui, build_board_labels, &c, CUI_KEY_ESCAPE, 0);
+    run(ui, build_board_labels, &c, 2);
+    CHECK(strcmp(c.label, "Calls") == 0 && c.changed == 1);
+    /* an empty label shows only while its line is selected: then a click on the line edits it */
+    c.label[0] = 0;
+    run(ui, build_board_labels, &c, 2);
+    click_at(ui, build_board_labels, &c, br.x + 300, br.y + 70);
+    CHECK(c.sel_edit);
+    run(ui, build_board_labels, &c, 2);
+    click_at(ui, build_board_labels, &c, br.x + 270, br.y + 70);
+    type(ui, build_board_labels, &c, "New");
+    key(ui, build_board_labels, &c, CUI_KEY_ENTER, 0);
+    run(ui, build_board_labels, &c, 2);
+    CHECK(strcmp(c.label, "New") == 0 && c.changed == 2);
+    cui_destroy(ui);
+}
+
 static void test_board_modes(void) {
     printf("board: read only, locked, snap, drag_selects\n");
     cui_ctx *ui = new_ctx();
@@ -11559,6 +11612,7 @@ int main(void) {
     test_board_review();
     test_board_lines();
     test_board_strokes();
+    test_board_labels();
     test_flame();
     test_disabled_flame_wheel();
     test_disabled_flame_shrinks();

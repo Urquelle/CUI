@@ -1945,7 +1945,7 @@ static void page_canvas(cui_ctx *ui) {
         cui_box(ui, .pad = 12) { cui_presence_pill(ui, "canvas-here", people, 3); }
     }
 
-    section(ui, "Board", "Ideas placed freely and joined by lines. Drag an idea to move it, its edges to resize it; drag the empty canvas to pan, Shift and drag to select several. Click a title to rename it; Delete removes the selection.");
+    section(ui, "Board", "Ideas placed freely and joined by lines. Drag an idea to move it, its edges to resize it; drag the empty canvas to pan, Shift and drag to select several. Click a title or a line's label to edit it (select a line to label it); Delete removes the selection.");
     {
         typedef struct { cui_rect rect; char title[48]; const char *note; cui_tone tone; bool alive; } idea;
         static idea ideas[5] = {
@@ -1956,6 +1956,7 @@ static void page_canvas(cui_ctx *ui) {
             { { 480, 230, 230, 0 }, "Ask Kate about the cabin", NULL, CUI_TONE_NEUTRAL, true },
         };
         static int links[5][3] = { { 1, 0, 1 }, { 2, 0, 2 }, { 3, 0, 3 }, { 4, 3, 4 } };
+        static char notes[5][32] = { "", "decide first", "", "", "" };   /* each line's label, by link id */
         static int link_n = 4;
         static bool boots = true, jacket, camera;
         static cui_node_view board_view = { 10, 10, 1 };
@@ -1978,7 +1979,9 @@ static void page_canvas(cui_ctx *ui) {
                         }
                     }
                 }
-                for (int k = 0; k < link_n; k++) cui_board_link(ui, links[k][0], links[k][1], links[k][2], .tone = ideas[links[k][2]].tone);
+                for (int k = 0; k < link_n; k++)
+                    cui_board_link(ui, links[k][0], links[k][1], links[k][2], .tone = ideas[links[k][2]].tone, .end_cap = CUI_BOARD_CAP_ARROW,
+                                   .dash = k == 3 ? CUI_BOARD_DASHED : CUI_BOARD_SOLID, .label_edit = notes[links[k][0]], .label_cap = sizeof notes[0]);
                 cui_board_end(ui);
             }
             /* fit frames the ideas where they are now; one whose height follows its content counts about 90 tall */

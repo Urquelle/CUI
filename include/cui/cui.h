@@ -3366,6 +3366,10 @@ typedef struct cui_board_link_opts {
     cui_board_dash dash;
     cui_board_cap start_cap;   /* at the `from` item; default none */
     cui_board_cap end_cap;     /* at the `to` item; default none */
+    const char *label;         /* text in a pill halfway along the line; `NULL` for none */
+    char *label_edit;          /* an editable label instead: a click edits it in place, Enter or a click elsewhere keeps it,
+                                * Esc puts it back; empty, it shows only while the line is selected */
+    size_t label_cap;          /* size of `label_edit` in bytes */
     float width;               /* points at 100%, default 1.5 */
     cui_color color;           /* unset: `tone` */
     cui_tone tone;             /* NEUTRAL: the strong border color */
@@ -3377,6 +3381,8 @@ CUI_API bool cui_board_link_ex(cui_ctx *ui, int link_id, int from_item, int to_i
  * item also removes its lines. */
 CUI_API bool cui_board_item_deleted(cui_ctx *ui, int *item_id);
 CUI_API bool cui_board_link_removed(cui_ctx *ui, int *link_id);
+/* A line whose `label_edit` was changed and kept this frame, one per call. */
+CUI_API bool cui_board_label_changed(cui_ctx *ui, int *link_id);
 #ifndef __cplusplus
 #define cui_board_begin(ui, id, view, ...) cui_board_begin_ex((ui), (id), (view), CUI__OPTS(cui_board_opts, __VA_ARGS__))
 #define cui_board_item(ui, id, rect, ...)  CUI__SCOPE_IF(cui_board_item_begin_ex((ui), (id), (rect), CUI__OPTS(cui_board_item_opts, __VA_ARGS__)), cui_board_item_end(ui))
